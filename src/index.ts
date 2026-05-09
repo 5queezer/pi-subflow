@@ -1,6 +1,7 @@
 export type {
 	ChainStep,
 	ExecutionOptions,
+	FlowMode,
 	FlowResult,
 	RunnerInput,
 	SubagentResult,

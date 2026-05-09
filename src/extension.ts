@@ -7,7 +7,7 @@ import { discoverAgents, type AgentDefinition, type AgentScope } from "./agents.
 import { appendRunHistory } from "./history.js";
 import { validateExecutionPolicy } from "./policy.js";
 import { PiSdkRunner } from "./runner.js";
-import type { ChainStep, ExecutionOptions, FlowResult, SubagentResult, SubagentRunner, SubagentTask } from "./types.js";
+import type { ChainStep, ExecutionOptions, FlowMode, FlowResult, SubagentResult, SubagentRunner, SubagentTask } from "./types.js";
 import { runChain } from "./flows/chain.js";
 import { runDag } from "./flows/dag.js";
 import { runParallel } from "./flows/parallel.js";
@@ -33,6 +33,7 @@ interface SubflowToolParams {
 	model?: string;
 	thinking?: SubagentTask["thinking"];
 	tasks?: SubagentTask[];
+	dagYaml?: string;
 	chain?: ChainStep[];
 	agentScope?: AgentScope;
 	confirmProjectAgents?: boolean;
@@ -83,6 +84,7 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			"Use subflow chain mode when later steps must consume the previous step via {previous}.",
 			"Use subflow parallel mode when 2+ independent tasks can run concurrently and do not depend on each other.",
 			"Use subflow DAG mode when tasks have explicit dependsOn relationships; set role: \"verifier\" for synthesis or validation nodes that need dependency outputs.",
+			"For concise LLM-authored DAGs, prefer dagYaml: a small YAML subset whose keys are task names; use needs as an alias for dependsOn.",
 			"For subflow task roles, only use \"worker\" or \"verifier\". Omit role to default to worker; do not invent roles like \"researcher\".",
 			"For subflow DAGs, task names must be unique; missing dependencies, self-dependencies, and dependency cycles are rejected before execution.",
 			"Set subflow tools to the minimum tool subset each subagent needs. Omit tools only when the default Pi tool set is appropriate.",
@@ -93,6 +95,7 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			agent: Type.Optional(Type.String({ minLength: 1, description: "Agent name for single-task mode." })),
 			task: Type.Optional(Type.String({ minLength: 1, description: "Task text for single-task mode." })),
 			tasks: Type.Optional(Type.Array(taskSchema, { description: "Parallel or DAG tasks. dependsOn enables DAG mode." })),
+			dagYaml: Type.Optional(Type.String({ description: "YAML shorthand for DAG tasks. Root is a mapping of task names to task fields; needs is an alias for dependsOn." })),
 			chain: Type.Optional(Type.Array(chainStepSchema, { description: "Sequential chain steps; later steps may use {previous}." })),
 			agentScope: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("project"), Type.Literal("both")], { default: "user" })),
 			confirmProjectAgents: Type.Optional(Type.Boolean({ default: true })),
@@ -114,12 +117,12 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			return new Text(formatCall(args as SubflowToolParams), 0, 0);
 		},
 		renderResult(result) {
-			const details = result.details as (FlowResult & { mode?: "single" | "chain" | "parallel" | "dag" }) | undefined;
+			const details = result.details as (FlowResult & { mode?: FlowMode }) | undefined;
 			const text = details?.mode ? formatResult(details, details.mode) : result.content.map((item) => item.type === "text" ? item.text : "").join("\n");
 			return new Text(text, 0, 0);
 		},
 		async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
-			const params = rawParams as SubflowToolParams;
+			const params = normalizeDagYaml(rawParams as SubflowToolParams);
 			const mode = inferMode(params);
 			validateNonEmptyStrings(params);
 			const flowTasks = tasksForPolicy(params);
@@ -189,11 +192,150 @@ async function confirmPolicies(params: SubflowToolParams, tasks: SubagentTask[],
 	}
 }
 
-function inferMode(params: SubflowToolParams): "single" | "chain" | "parallel" | "dag" {
+function inferMode(params: SubflowToolParams): FlowMode {
 	if (params.chain) return "chain";
+	if (params.dagYaml) return "dag";
 	if (params.tasks) return params.tasks.some((task) => task.dependsOn?.length || task.role === "verifier") ? "dag" : "parallel";
 	if (params.agent && params.task) return "single";
-	throw new Error("subflow requires either agent+task, chain, or tasks");
+	throw new Error("subflow requires either agent+task, chain, dagYaml, or tasks");
+}
+
+function normalizeDagYaml(params: SubflowToolParams): SubflowToolParams {
+	if (!params.dagYaml) return params;
+	if (params.tasks) throw new Error("subflow accepts either dagYaml or tasks, not both");
+	return { ...params, tasks: parseDagYaml(params.dagYaml) };
+}
+
+function parseDagYaml(source: string): SubagentTask[] {
+	const root: Record<string, Record<string, unknown>> = {};
+	let currentName: string | undefined;
+	const lines = source.replace(/\r\n?/g, "\n").split("\n");
+	for (let index = 0; index < lines.length; index += 1) {
+		const rawLine = lines[index];
+		if (!rawLine.trim() || rawLine.trimStart().startsWith("#")) continue;
+		if (rawLine.includes("\t")) throw new Error("invalid dagYaml: tabs are not supported");
+		const indent = countIndent(rawLine);
+		const line = rawLine.trim();
+		const match = /^([^:]+):(.*)$/.exec(line);
+		if (!match) throw new Error(`invalid dagYaml line ${index + 1}: expected key: value`);
+		const key = match[1].trim();
+		const rest = match[2].trim();
+		if (!key) throw new Error(`invalid dagYaml line ${index + 1}: empty key`);
+		if (indent === 0) {
+			if (rest) throw new Error(`dagYaml task ${key} must be a mapping`);
+			if (root[key]) throw new Error(`duplicate DAG task name: ${key}`);
+			currentName = key;
+			root[currentName] = {};
+			continue;
+		}
+		if (!currentName) throw new Error("dagYaml root must be a mapping of task names to task definitions");
+		if (indent !== 2) throw new Error(`invalid dagYaml line ${index + 1}: only two-space task fields are supported`);
+		if (rest === "|" || rest === ">") {
+			const block: string[] = [];
+			while (index + 1 < lines.length) {
+				const nextLine = lines[index + 1];
+				if (nextLine.trim() && countIndent(nextLine) <= indent) break;
+				index += 1;
+				block.push(nextLine.startsWith("    ") ? nextLine.slice(4) : nextLine.trimStart());
+			}
+			root[currentName][key] = rest === ">" ? block.join(" ").trimEnd() : block.join("\n").trimEnd();
+			continue;
+		}
+		if (!rest) {
+			const nested: Record<string, unknown> = {};
+			while (index + 1 < lines.length) {
+				const nextLine = lines[index + 1];
+				if (!nextLine.trim() || nextLine.trimStart().startsWith("#")) {
+					index += 1;
+					continue;
+				}
+				if (countIndent(nextLine) <= indent) break;
+				index += 1;
+				const nestedMatch = /^([^:]+):(.*)$/.exec(nextLine.trim());
+				if (!nestedMatch || countIndent(nextLine) !== 4) throw new Error(`invalid dagYaml line ${index + 1}: only one nested mapping level is supported`);
+				nested[nestedMatch[1].trim()] = parseYamlScalar(nestedMatch[2].trim());
+			}
+			root[currentName][key] = nested;
+			continue;
+		}
+		root[currentName][key] = parseYamlScalar(rest);
+	}
+	if (!Object.keys(root).length) throw new Error("dagYaml root must be a mapping of task names to task definitions");
+	return Object.entries(root).map(([name, value]) => parseDagYamlTask(name, value));
+}
+
+function countIndent(line: string): number {
+	return line.length - line.trimStart().length;
+}
+
+function parseYamlScalar(value: string): unknown {
+	if (value.startsWith("[") && value.endsWith("]")) {
+		const inner = value.slice(1, -1).trim();
+		return inner ? inner.split(",").map((item) => unquoteYamlString(item.trim())) : [];
+	}
+	return unquoteYamlString(value);
+}
+
+function unquoteYamlString(value: string): string {
+	if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) return value.slice(1, -1);
+	return value;
+}
+
+function parseDagYamlTask(name: string, value: unknown): SubagentTask {
+	if (!isRecord(value) || Array.isArray(value)) throw new Error(`dagYaml task ${name} must be a mapping`);
+	const agent = value.agent;
+	const task = value.task;
+	if (typeof agent !== "string" || typeof task !== "string") throw new Error(`dagYaml task ${name} requires agent and task strings`);
+	if (value.dependsOn !== undefined && value.needs !== undefined) throw new Error(`dagYaml task ${name} cannot set both needs and dependsOn`);
+	const dependsOn = parseStringArray(value.dependsOn ?? value.needs, `dagYaml task ${name} dependsOn`);
+	return {
+		name,
+		agent,
+		task,
+		cwd: optionalString(value.cwd, `dagYaml task ${name} cwd`),
+		dependsOn,
+		role: optionalRole(value.role, name),
+		authority: optionalAuthority(value.authority, name),
+		tools: parseStringArray(value.tools, `dagYaml task ${name} tools`),
+		model: optionalString(value.model, `dagYaml task ${name} model`),
+		thinking: optionalThinking(value.thinking, name),
+		expectedSections: parseStringArray(value.expectedSections, `dagYaml task ${name} expectedSections`),
+		jsonSchema: isRecord(value.jsonSchema) ? { required: parseStringArray(value.jsonSchema.required, `dagYaml task ${name} jsonSchema.required`) } : undefined,
+	};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function optionalString(value: unknown, field: string): string | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "string") throw new Error(`${field} must be a string`);
+	return value;
+}
+
+function parseStringArray(value: unknown, field: string): string[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) throw new Error(`${field} must be an array of strings`);
+	return value;
+}
+
+function optionalRole(value: unknown, name: string): SubagentTask["role"] | undefined {
+	if (value === undefined) return undefined;
+	if (value === "worker" || value === "verifier") return value;
+	throw new Error(`dagYaml task ${name} role must be worker or verifier`);
+}
+
+function optionalAuthority(value: unknown, name: string): SubagentTask["authority"] | undefined {
+	if (value === undefined) return undefined;
+	if (value === "read_only" || value === "internal_mutation" || value === "external_side_effect") return value;
+	throw new Error(`dagYaml task ${name} authority must be read_only, internal_mutation, or external_side_effect`);
+}
+
+function optionalThinking(value: unknown, name: string): SubagentTask["thinking"] | undefined {
+	if (value === undefined) return undefined;
+	if (value === "off" || value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh") return value;
+	throw new Error(`dagYaml task ${name} thinking must be off, minimal, low, medium, high, or xhigh`);
 }
 
 function validateNonEmptyStrings(params: SubflowToolParams): void {
@@ -205,6 +347,7 @@ function validateNonEmptyStrings(params: SubflowToolParams): void {
 
 function tasksForPolicy(params: SubflowToolParams): SubagentTask[] {
 	if (params.tasks) return params.tasks;
+	if (params.dagYaml) return parseDagYaml(params.dagYaml);
 	if (params.chain) return params.chain.map((step) => ({ ...step }));
 	if (params.agent && params.task) return [{ ...(params as SubagentTask), agent: params.agent, task: params.task }];
 	return [];
@@ -311,7 +454,7 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 	};
 }
 
-async function runSelectedFlow(mode: "single" | "chain" | "parallel" | "dag", params: SubflowToolParams, options: ExecutionOptions): Promise<FlowResult> {
+async function runSelectedFlow(mode: FlowMode, params: SubflowToolParams, options: ExecutionOptions): Promise<FlowResult> {
 	if (mode === "single") return runSingle({ agent: params.agent ?? "", task: params.task ?? "", cwd: (params as SubagentTask).cwd, role: (params as SubagentTask).role, tools: (params as SubagentTask).tools, model: (params as SubagentTask).model, thinking: (params as SubagentTask).thinking }, options);
 	if (mode === "chain") return runChain({ chain: params.chain ?? [] }, options);
 	if (mode === "dag") return runDag({ tasks: params.tasks ?? [] }, options);
@@ -339,7 +482,7 @@ function formatCall(params: SubflowToolParams): string {
 	].join("\n");
 }
 
-function formatResult(result: FlowResult, mode: "single" | "chain" | "parallel" | "dag"): string {
+function formatResult(result: FlowResult, mode: FlowMode): string {
 	const completed = result.results.filter((item) => item.status === "completed").length;
 	const failed = result.results.filter((item) => item.status === "failed").length;
 	const skipped = result.results.filter((item) => item.status === "skipped").length;
@@ -352,7 +495,7 @@ function formatResult(result: FlowResult, mode: "single" | "chain" | "parallel" 
 	return lines.join("\n");
 }
 
-function formatResultBody(result: FlowResult, mode: "single" | "chain" | "parallel" | "dag"): string[] {
+function formatResultBody(result: FlowResult, mode: FlowMode): string[] {
 	if (mode === "dag") return formatDagResult(result.results);
 	return result.results.map((item) => formatTaskResult(item));
 }

@@ -45,6 +45,69 @@ test("subflow extension registers a Pi tool that runs a single task and appends 
 	assert.match(history, /"mode":"single"/);
 });
 
+test("subflow extension runs DAG tasks from YAML shorthand", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	const result = await pi.tool.execute("call-1", {
+		dagYaml: `
+api-review:
+  agent: reviewer
+  task: |
+    Review API exports
+    Include type exports
+
+tests-review:
+  agent: reviewer
+  task: Review test coverage
+
+final-verdict:
+  agent: reviewer
+  role: verifier
+  needs: [api-review, tests-review]
+  task: Synthesize findings
+`,
+	}, undefined, undefined, fakeCtx(cwd));
+
+	assert.equal(result.isError, false);
+	assert.deepEqual(runner.calls.map((call) => call.name), ["api-review", "tests-review", "final-verdict"]);
+	assert.equal(runner.calls[0].task, "Review API exports\nInclude type exports");
+	assert.deepEqual(runner.calls[2].dependsOn, ["api-review", "tests-review"]);
+	assert.match(runner.calls[2].task, /Dependency outputs/);
+});
+
+test("subflow extension rejects malformed DAG YAML before running agents", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	await assert.rejects(
+		() => pi.tool.execute("call-1", { dagYaml: "missing-agent:\n  task: No agent" }, undefined, undefined, fakeCtx(cwd)),
+		/dagYaml task missing-agent requires agent and task strings/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
+test("subflow extension rejects ambiguous DAG YAML inputs before running agents", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	await assert.rejects(
+		() => pi.tool.execute("call-1", { dagYaml: "a:\n  agent: worker\n  task: one", tasks: [{ name: "b", agent: "worker", task: "two" }] }, undefined, undefined, fakeCtx(cwd)),
+		/subflow accepts either dagYaml or tasks, not both/,
+	);
+	await assert.rejects(
+		() => pi.tool.execute("call-1", { dagYaml: "a:\n  agent: worker\n  task: one\n  needs: [b]\n  dependsOn: [c]" }, undefined, undefined, fakeCtx(cwd)),
+		/dagYaml task a cannot set both needs and dependsOn/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
 test("subflow extension runs DAG tasks and confirms project-local agents in UI", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const projectDir = join(cwd, ".pi", "agents");

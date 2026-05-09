@@ -37,7 +37,7 @@ flowchart TD
 | Single | exactly one focused subagent task is useful | `agent` + `task` |
 | Chain | a linear pipeline where each step may consume the immediately previous result | `chain: [{ agent, task }]` with optional `{previous}` |
 | Parallel | 2+ independent tasks can run concurrently | `tasks: [...]` with no `dependsOn` |
-| DAG | named dependencies, parallel stages, and verifier fan-in | `tasks: [...]` with `dependsOn` |
+| DAG | named dependencies, parallel stages, and verifier fan-in | `tasks: [...]` with `dependsOn`, or `dagYaml` shorthand |
 
 ### Chain vs DAG
 
@@ -91,6 +91,30 @@ Example DAG:
 }
 ```
 
+For LLM-authored DAGs, the Pi tool also accepts `dagYaml`, a concise dependency-free YAML subset. The YAML root is a mapping from task names to task fields, and `needs` is normalized to `dependsOn`. Use either `needs` or `dependsOn` on a task, not both:
+
+```yaml
+api-review:
+  agent: reviewer
+  task: Review src/index.ts and public exports
+  tools: [read]
+  model: openai-codex/gpt-5.4-mini
+
+tests-review:
+  agent: reviewer
+  task: Review tests for missing failure-path coverage
+  tools: [read]
+  model: openai-codex/gpt-5.4-mini
+
+final-verdict:
+  agent: reviewer
+  role: verifier
+  needs: [api-review, tests-review]
+  task: Synthesize the dependency outputs into a prioritized verdict
+```
+
+The shorthand is only an authoring format at the Pi tool boundary; internally it becomes the same `tasks` array shown above. It intentionally supports a small LLM-friendly subset: task mappings, scalar strings, inline string arrays such as `[read, bash]`, one nested `jsonSchema.required` mapping, and `|`/`>` block strings. YAML anchors, aliases, and advanced tags are not supported.
+
 DAG validation happens before execution. Invalid graphs fail before any subagent runs:
 
 | Invalid DAG | Error |
@@ -113,6 +137,7 @@ flowchart TB
 
 - Single, chain, parallel, and DAG execution
 - DAG preflight validation with precise diagnostics
+- YAML DAG shorthand for concise LLM-authored task graphs
 - Deterministic stage planning for dependency graphs
 - Structured `dependsOn` metadata on `SubagentResult`
 - Verifier dependency-output injection
@@ -176,6 +201,24 @@ Use subflow to run three read-only code review agents in parallel:
 3. README/docs review
 Then run a verifier that synthesizes the findings.
 Use cheap models for the first three tasks and a stronger model for the verifier.
+```
+
+For explicit DAGs, `dagYaml` is the most compact authoring form:
+
+```yaml
+api-review:
+  agent: reviewer
+  task: Review src/index.ts and public exports
+
+test-review:
+  agent: reviewer
+  task: Review tests for coverage gaps
+
+final-verdict:
+  agent: reviewer
+  role: verifier
+  needs: [api-review, test-review]
+  task: Synthesize the findings into a prioritized verdict
 ```
 
 The extension records JSONL history to `.pi/subflow-runs.jsonl` in the active project. An interactive history browser is planned, but is not registered until its TUI behavior is stable.

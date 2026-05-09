@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, appendFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { FlowResult } from "./types.js";
+import type { FlowMode, FlowResult } from "./types.js";
 
 export interface RunHistoryEntry extends FlowResult {
-	mode: "single" | "chain" | "parallel" | "dag";
+	mode: FlowMode;
 	runId?: string;
 	createdAt?: string;
 }

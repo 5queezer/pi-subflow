@@ -1,4 +1,5 @@
 export type TaskStatus = "completed" | "failed" | "skipped" | "running";
+export type FlowMode = "single" | "chain" | "parallel" | "dag";
 
 export interface UsageStats {
 	input?: number;
