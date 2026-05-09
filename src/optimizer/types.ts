@@ -1,0 +1,95 @@
+import type { FlowResult, SubagentTask } from "../types.js";
+
+export interface OptimizerObjectiveWeights {
+	taskScore: number;
+	cost: number;
+	latency: number;
+	instability: number;
+	complexity: number;
+}
+
+export interface OptimizerScoringPolicy {
+	minRunsPerCase: number;
+	minUtilityDelta: number;
+	maxFailureRateRegression: number;
+}
+
+export interface EvalCase {
+	name: string;
+	input: string;
+	expectedSections?: string[];
+	jsonSchema?: {
+		required?: string[];
+	};
+}
+
+export interface EvalSet {
+	name: string;
+	workflow?: string;
+	objective: OptimizerObjectiveWeights;
+	scoring: OptimizerScoringPolicy;
+	cases: EvalCase[];
+}
+
+export type EvalSetInput = { path: string; inline?: never } | { inline: EvalSet; path?: never };
+
+export interface LoadedEvalSet {
+	evalSet: EvalSet;
+	source: { kind: "path"; path: string; canonical: boolean } | { kind: "inline" };
+	persistenceRecommendation?: string;
+}
+
+export interface GraphMetrics {
+	runnableTasks: number;
+	edges: number;
+	conditionals: number;
+	nestedWorkflowDepth: number;
+	loopExpansionBound: number;
+	syntheticSummaryNodes: number;
+	complexity: number;
+}
+
+export interface CandidateEvaluation {
+	id: string;
+	label: string;
+	status: "completed" | "failed" | "invalid";
+	dagYaml?: string;
+	error?: string;
+	metrics?: EvaluationMetrics;
+	utility?: number;
+	graph?: GraphMetrics;
+}
+
+export interface EvaluationMetrics {
+	taskScore: number;
+	dollarCost: number;
+	wallTimeMs: number;
+	failureRate: number;
+	runs: number;
+	failures: number;
+}
+
+export interface OptimizerReport {
+	reportId: string;
+	createdAt: string;
+	evalSetName: string;
+	source: LoadedEvalSet["source"];
+	persistenceRecommendation?: string;
+	baseline: CandidateEvaluation;
+	candidates: CandidateEvaluation[];
+	recommendation: string;
+	warnings: string[];
+}
+
+export interface WorkflowCandidate {
+	id: string;
+	label: string;
+	tasks: SubagentTask[];
+	dagYaml?: string;
+}
+
+export interface CaseRunResult {
+	caseName: string;
+	result: FlowResult;
+	wallTimeMs: number;
+}
