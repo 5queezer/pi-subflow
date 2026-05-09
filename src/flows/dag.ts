@@ -1,12 +1,16 @@
 import { Flow } from "pocketflow";
 import { aggregateStatus, enforceBudget, mapLimit, namedTask, runTask } from "../execution.js";
+import { planDagStages, validateDagTasks } from "./dag-validation.js";
 import type { ExecutionOptions, FlowResult, SubagentResult, SubagentTask, TraceEvent } from "../types.js";
+import type { NormalizedDagTask } from "./dag-validation.js";
 
 export async function runDag(input: { tasks: SubagentTask[] }, options: ExecutionOptions): Promise<FlowResult> {
 	void Flow;
 	const trace: TraceEvent[] = [];
-	const tasks = normalizeTasks(input.tasks);
-	const stages = planStages(tasks);
+	const validation = validateDagTasks(input.tasks);
+	if (validation.issues.length > 0) throw new Error(validation.issues[0].message);
+	const tasks = validation.tasks;
+	const stages = planDagStages(tasks);
 	const byName = new Map<string, SubagentResult>();
 	const results: SubagentResult[] = [];
 	let budgetExceeded = false;
@@ -41,7 +45,7 @@ export async function runDag(input: { tasks: SubagentTask[] }, options: Executio
 }
 
 async function runVerifierRepairs(
-	tasks: NormalizedTask[],
+	tasks: NormalizedDagTask[],
 	byName: Map<string, SubagentResult>,
 	results: SubagentResult[],
 	trace: TraceEvent[],
@@ -84,42 +88,6 @@ function dagStatus(results: SubagentResult[]): "completed" | "failed" {
 		latestByName.set(result.name ?? `${result.agent}:${result.task}`, result);
 	}
 	return aggregateStatus([...latestByName.values()]);
-}
-
-type NormalizedTask = SubagentTask & { name: string; dependsOn: string[] };
-
-function normalizeTasks(tasks: SubagentTask[]): NormalizedTask[] {
-	const named = tasks.map((task, index) => namedTask(task, index));
-	assertUniqueTaskNames(named);
-	const nonVerifierNames = named.filter((task) => task.role !== "verifier").map((task) => task.name);
-	return named.map((task) => ({
-		...task,
-		dependsOn: task.role === "verifier" && task.dependsOn === undefined ? nonVerifierNames : (task.dependsOn ?? []),
-	}));
-}
-
-function assertUniqueTaskNames(tasks: { name: string }[]): void {
-	const seen = new Set<string>();
-	for (const task of tasks) {
-		if (seen.has(task.name)) throw new Error(`duplicate DAG task name: ${task.name}`);
-		seen.add(task.name);
-	}
-}
-
-function planStages<T extends { name: string; dependsOn?: string[] }>(tasks: T[]): T[][] {
-	const remaining = new Map(tasks.map((task) => [task.name, task]));
-	const completed = new Set<string>();
-	const stages: T[][] = [];
-	while (remaining.size > 0) {
-		const ready = [...remaining.values()].filter((task) => (task.dependsOn ?? []).every((dep) => completed.has(dep)));
-		if (ready.length === 0) throw new Error(`dependency cycle or unknown dependency among: ${[...remaining.keys()].join(", ")}`);
-		stages.push(ready);
-		for (const task of ready) {
-			remaining.delete(task.name);
-			completed.add(task.name);
-		}
-	}
-	return stages;
 }
 
 function appendDependencyOutputs<T extends { task: string; dependsOn?: string[] }>(task: T, byName: Map<string, SubagentResult>): T {

@@ -7,6 +7,7 @@ import {
 	runParallel,
 	runSingle,
 } from "../src/index.js";
+import { planDagStages, validateDagTasks } from "../src/flows/dag-validation.js";
 import type { RunnerInput, SubagentResult, SubagentRunner } from "../src/index.js";
 
 const task = (name: string, taskText = name) => ({
@@ -91,6 +92,33 @@ test("runDag executes dependencies before verifier and injects dependency output
 	assert.deepEqual(result.results[2].dependsOn, ["front", "back"]);
 });
 
+test("validateDagTasks normalizes verifier fan-in before execution", () => {
+	const normalized = validateDagTasks([
+		task("front", "frontend"),
+		task("back", "backend"),
+		{ name: "verify", agent: "mock", role: "verifier" as const, task: "verify" },
+	]);
+
+	assert.deepEqual(normalized.tasks.map((item) => ({ name: item.name, dependsOn: item.dependsOn })), [
+		{ name: "front", dependsOn: [] },
+		{ name: "back", dependsOn: [] },
+		{ name: "verify", dependsOn: ["front", "back"] },
+	]);
+	assert.deepEqual(normalized.issues, []);
+});
+
+test("validateDagTasks reports duplicate task names", () => {
+	const result = validateDagTasks([task("dup", "first"), task("dup", "second")]);
+
+	assert.deepEqual(result.issues, [
+		{
+			code: "duplicate_name",
+			message: "duplicate DAG task name: dup",
+			task: "dup",
+		},
+	]);
+});
+
 test("runDag rejects duplicate task names before execution", async () => {
 	const runner = new MockSubagentRunner({ mock: async ({ task }) => `done:${task}` });
 
@@ -102,6 +130,83 @@ test("runDag rejects duplicate task names before execution", async () => {
 		/duplicate DAG task name: dup/,
 	);
 	assert.equal(runner.calls.length, 0);
+});
+
+test("runDag rejects missing dependencies with the exact task and dependency", async () => {
+	const runner = new MockSubagentRunner({ mock: async ({ task }) => `done:${task}` });
+
+	await assert.rejects(
+		runDag(
+			{ tasks: [{ ...task("verify"), dependsOn: ["missing"] }] },
+			{ runner },
+		),
+		/task verify depends on missing task missing/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
+test("runDag rejects self-dependencies with the exact task name", async () => {
+	const runner = new MockSubagentRunner({ mock: async ({ task }) => `done:${task}` });
+
+	await assert.rejects(
+		runDag(
+			{ tasks: [{ ...task("loop"), dependsOn: ["loop"] }] },
+			{ runner },
+		),
+		/task loop cannot depend on itself/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
+test("runDag rejects dependency cycles with the cycle path", async () => {
+	const runner = new MockSubagentRunner({ mock: async ({ task }) => `done:${task}` });
+
+	await assert.rejects(
+		runDag(
+			{ tasks: [{ ...task("a"), dependsOn: ["b"] }, { ...task("b"), dependsOn: ["a"] }] },
+			{ runner },
+		),
+		/dependency cycle: a -> b -> a/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
+test("validateDagTasks reports dependency cycles with a structured issue", () => {
+	const result = validateDagTasks([{ ...task("a"), dependsOn: ["b"] }, { ...task("b"), dependsOn: ["a"] }]);
+
+	assert.deepEqual(result.issues, [
+		{
+			code: "cycle",
+			message: "dependency cycle: a -> b -> a",
+			path: ["a", "b", "a"],
+		},
+	]);
+});
+
+test("planDagStages rejects duplicate task names when called directly", () => {
+	assert.throws(
+		() => planDagStages([{ ...task("dup"), dependsOn: [] }, { ...task("dup"), dependsOn: [] }]),
+		/duplicate DAG task name: dup/,
+	);
+});
+
+test("planDagStages rejects missing dependencies when called directly", () => {
+	assert.throws(
+		() => planDagStages([{ ...task("verify"), dependsOn: ["missing"] }]),
+		/task verify depends on missing task missing/,
+	);
+});
+
+test("planDagStages returns dependency stages for validated tasks", () => {
+	const validation = validateDagTasks([
+		task("front"),
+		task("back"),
+		{ ...task("verify"), dependsOn: ["front", "back"] },
+	]);
+
+	const stages = planDagStages(validation.tasks);
+
+	assert.deepEqual(stages.map((stage) => stage.map((item) => item.name).sort()), [["back", "front"], ["verify"]]);
 });
 
 test("runDag validates expected markdown sections", async () => {
