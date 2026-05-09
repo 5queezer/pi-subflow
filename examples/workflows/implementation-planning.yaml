@@ -1,0 +1,47 @@
+# Copy this whole file into the subflow tool's dagYaml parameter.
+# Rename agents to match your local Pi agent definitions.
+requirements-scout:
+  agent: planner
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Read the request and nearby project context. Extract concrete requirements,
+    constraints, non-goals, and open questions. Do not design the implementation yet.
+  tools: [read]
+  thinking: low
+
+architecture-scout:
+  agent: planner
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Inspect the relevant code and documentation. Identify existing extension points,
+    module boundaries, naming conventions, and likely files that would change.
+  tools: [read]
+  thinking: low
+
+risk-scout:
+  agent: reviewer
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Identify implementation risks for the requested change: compatibility,
+    validation, testability, security/policy gates, and documentation drift.
+    Suggest mitigations.
+  tools: [read]
+  thinking: low
+
+plan-verifier:
+  agent: planner
+  model: openai-codex/gpt-5.5
+  role: verifier
+  needs: [requirements-scout, architecture-scout, risk-scout]
+  task: |
+    Produce a concise implementation plan from the dependency outputs.
+    Include ordered steps, tests to write first, files likely to change, and
+    verification commands. Call out unresolved questions separately.
+    Use exactly these markdown headings:
+    ## Plan
+    ## Tests
+    ## Risks
+    ## Questions
+  tools: [read]
+  thinking: medium
+  expectedSections: [Plan, Tests, Risks, Questions]

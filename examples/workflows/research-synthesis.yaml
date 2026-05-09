@@ -1,0 +1,46 @@
+# Copy this whole file into the subflow tool's dagYaml parameter.
+# Rename agents to match your local Pi agent definitions.
+web-research:
+  agent: researcher
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Research the external/web side of the question using curated search output only.
+    Keep raw search results out of the final answer. Return sources, dates when
+    relevant, and the highest-signal facts.
+  tools: [bash]
+  thinking: low
+
+repo-research:
+  agent: researcher
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Research the local repository for the question. Find relevant files, current
+    behavior, constraints, and examples. Return file paths and concise evidence.
+  tools: [read, bash]
+  thinking: low
+
+docs-research:
+  agent: researcher
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Research local project documentation and ADRs for decisions, constraints,
+    and terminology relevant to the question. Return citations by file path.
+  tools: [read, bash]
+  thinking: low
+
+synthesis:
+  agent: researcher
+  model: openai-codex/gpt-5.5
+  role: verifier
+  needs: [web-research, repo-research, docs-research]
+  task: |
+    Synthesize the dependency outputs into an evidence-backed answer.
+    Distinguish external facts from repository-specific facts, resolve conflicts,
+    and list citations or file paths for every important claim.
+    Use exactly these markdown headings:
+    ## Answer
+    ## Evidence
+    ## Caveats
+  tools: [read]
+  thinking: medium
+  expectedSections: [Answer, Evidence, Caveats]

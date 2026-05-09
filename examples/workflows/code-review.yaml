@@ -1,0 +1,48 @@
+# Copy this whole file into the subflow tool's dagYaml parameter.
+# Rename agents to match your local Pi agent definitions.
+api-review:
+  agent: reviewer
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Review the public API and implementation surface for the requested target.
+    Focus on correctness, edge cases, API compatibility, and surprising behavior.
+    Return findings with file paths, severity, and concrete recommendations.
+  tools: [read]
+  thinking: low
+
+tests-review:
+  agent: reviewer
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Review the tests for the requested target.
+    Look for missing behavior coverage, weak assertions, untested failure paths,
+    and brittle test setup. Suggest specific tests to add or improve.
+  tools: [read]
+  thinking: low
+
+docs-review:
+  agent: reviewer
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Review related README, ADR, and inline documentation for consistency with
+    the requested target. Flag stale examples, missing usage notes, and unclear
+    user-facing behavior.
+  tools: [read]
+  thinking: low
+
+final-verdict:
+  agent: reviewer
+  model: openai-codex/gpt-5.5
+  role: verifier
+  needs: [api-review, tests-review, docs-review]
+  task: |
+    Synthesize the dependency outputs into a prioritized code review verdict.
+    Deduplicate overlapping findings, separate blockers from follow-ups, and
+    include exact next actions.
+    Use exactly these markdown headings:
+    ## Blockers
+    ## Findings
+    ## Follow-ups
+  tools: [read]
+  thinking: medium
+  expectedSections: [Blockers, Findings, Follow-ups]

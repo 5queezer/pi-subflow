@@ -1,0 +1,43 @@
+# Copy this whole file into the subflow tool's dagYaml parameter.
+# Rename agents to match your local Pi agent definitions.
+readme-review:
+  agent: reviewer
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Review README.md for the requested behavior or API. Check whether examples,
+    feature lists, troubleshooting, and installation/usage instructions are current.
+  tools: [read]
+  thinking: low
+
+adr-review:
+  agent: reviewer
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Review docs/adr for decisions that should match the requested behavior or API.
+    Flag contradictions, missing rationale, or stale architecture notes.
+  tools: [read, bash]
+  thinking: low
+
+prompt-guidance-review:
+  agent: reviewer
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Review LLM-facing guidance such as promptSnippet, promptGuidelines, schemas,
+    and examples. Check whether assistants will know how to use the behavior safely.
+  tools: [read, bash]
+  thinking: low
+
+consistency-verdict:
+  agent: reviewer
+  model: openai-codex/gpt-5.5
+  role: verifier
+  needs: [readme-review, adr-review, prompt-guidance-review]
+  task: |
+    Synthesize documentation consistency findings. Separate required documentation
+    fixes from optional polish, and name every file that should change.
+    Use exactly these markdown headings:
+    ## Required fixes
+    ## Optional polish
+  tools: [read]
+  thinking: medium
+  expectedSections: [Required fixes, Optional polish]

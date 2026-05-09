@@ -1,0 +1,45 @@
+# Copy this whole file into the subflow tool's dagYaml parameter.
+# Rename agents to match your local Pi agent definitions.
+repro-scout:
+  agent: debugger
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Investigate how to reproduce the reported bug. Identify the smallest command,
+    input, fixture, or scenario that demonstrates the failure. Do not modify code.
+  tools: [read, bash]
+  thinking: low
+
+code-path-scout:
+  agent: debugger
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Trace the likely code path for the bug from entry point to failure point.
+    Return relevant files, functions, invariants, and suspicious assumptions.
+  tools: [read, bash]
+  thinking: low
+
+test-gap-scout:
+  agent: debugger
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Inspect existing tests around the bug. Identify missing regression coverage,
+    weak assertions, and the most focused failing test to write first.
+  tools: [read, bash]
+  thinking: low
+
+root-cause-verifier:
+  agent: debugger
+  model: openai-codex/gpt-5.5
+  role: verifier
+  needs: [repro-scout, code-path-scout, test-gap-scout]
+  task: |
+    Synthesize a root-cause analysis. Include the best reproduction path, the
+    likely defect, the first regression test to add, and the minimal fix strategy.
+    Use exactly these markdown headings:
+    ## Reproduction
+    ## Root cause
+    ## Regression test
+    ## Fix strategy
+  tools: [read]
+  thinking: medium
+  expectedSections: [Reproduction, Root cause, Regression test, Fix strategy]

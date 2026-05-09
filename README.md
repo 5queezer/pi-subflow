@@ -223,6 +223,20 @@ final-verdict:
 
 The extension records JSONL history to `.pi/subflow-runs.jsonl` in the active project. An interactive history browser is planned, but is not registered until its TUI behavior is stable.
 
+## Workflow templates
+
+Copy/paste templates from `examples/workflows/` into the `dagYaml` parameter, then adjust agent names, target paths, and task text for your project. The templates are plain YAML examples; they do not add built-in named workflows or slash commands.
+
+| Template | Use when | Path |
+| --- | --- | --- |
+| Code review fan-in | independent API, tests, and docs reviewers should feed one verdict | [`examples/workflows/code-review.yaml`](examples/workflows/code-review.yaml) |
+| Implementation planning | requirements, architecture, and risk scouts should feed one implementation plan | [`examples/workflows/implementation-planning.yaml`](examples/workflows/implementation-planning.yaml) |
+| Research synthesis | web, repository, and docs research should be reconciled into one answer | [`examples/workflows/research-synthesis.yaml`](examples/workflows/research-synthesis.yaml) |
+| Docs consistency | README, ADR, and LLM-facing guidance should be checked together | [`examples/workflows/docs-consistency.yaml`](examples/workflows/docs-consistency.yaml) |
+| Bug investigation | repro, code-path, and test-gap scouts should feed one root-cause analysis | [`examples/workflows/bug-investigation.yaml`](examples/workflows/bug-investigation.yaml) |
+
+These examples intentionally use generic agent names such as `reviewer`, `planner`, `researcher`, and `debugger`. Rename them to match agents installed in your Pi user or project agent directories.
+
 ## TypeScript API
 
 `pi-subflow` can also be used as a library.

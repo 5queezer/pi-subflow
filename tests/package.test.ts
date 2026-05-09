@@ -33,3 +33,30 @@ test("docs describe DAG validation boundary and future workflow IR", async () =>
 	assert.match(adr, /DAG[\s\S]*validation[\s\S]*boundary/);
 	assert.match(adr, /graph librar(?:y|ies)/);
 });
+
+test("workflow template examples are shipped and indexed", async () => {
+	const readme = await readFile("README.md", "utf8");
+	const templateNames = [
+		"code-review",
+		"implementation-planning",
+		"research-synthesis",
+		"docs-consistency",
+		"bug-investigation",
+	];
+
+	for (const name of templateNames) {
+		const path = `examples/workflows/${name}.yaml`;
+		const template = await readFile(path, "utf8");
+		assert.match(readme, new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+		assert.match(template, /role: verifier/);
+		assert.match(template, /needs: \[/);
+		assert.match(template, /model: openai-codex\/gpt-5\.4-mini/);
+		assert.match(template, /model: openai-codex\/gpt-5\.5/);
+		for (const sectionList of template.matchAll(/expectedSections: \[([^\]]+)\]/g)) {
+			for (const rawSection of sectionList[1].split(",")) {
+				const section = rawSection.trim();
+				assert.match(template, new RegExp(`## ${section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+			}
+		}
+	}
+});
