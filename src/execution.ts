@@ -16,7 +16,8 @@ export async function runTask(task: RunnerInput, options: ExecutionOptions, trac
 		else options.signal?.addEventListener("abort", abortAttempt, { once: true });
 		try {
 			const result = await withTimeout(options.runner.run(task, attemptController.signal), options.timeoutSeconds, task.name, () => attemptController.abort());
-			const normalized = result.status === "failed" ? result : { ...result, status: "completed" as const };
+			const withMetadata = { ...result, role: result.role ?? task.role, model: result.model ?? task.model };
+			const normalized = withMetadata.status === "failed" ? withMetadata : { ...withMetadata, status: "completed" as const };
 			if (normalized.status === "completed" && (task.expectedSections || task.jsonSchema)) {
 				validateOutput(normalized.output, task);
 			}
@@ -29,7 +30,7 @@ export async function runTask(task: RunnerInput, options: ExecutionOptions, trac
 		}
 	}
 	trace.push({ type: "task_failed", name: task.name, error: lastError, timestamp: Date.now() });
-	return { name: task.name, agent: task.agent, task: task.task, status: "failed", output: "", error: lastError, usage: {} };
+	return { name: task.name, agent: task.agent, task: task.task, role: task.role, model: task.model, status: "failed", output: "", error: lastError, usage: {} };
 }
 
 export async function mapLimit<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { discoverAgents, type AgentDefinition, type AgentScope } from "./agents.js";
 import { appendRunHistory } from "./history.js";
@@ -25,6 +26,10 @@ type RiskTolerance = "low" | "medium" | "high";
 interface SubflowToolParams {
 	agent?: string;
 	task?: string;
+	role?: SubagentTask["role"];
+	tools?: string[];
+	model?: string;
+	thinking?: SubagentTask["thinking"];
 	tasks?: SubagentTask[];
 	chain?: ChainStep[];
 	agentScope?: AgentScope;
@@ -70,6 +75,7 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 		label: "Pi Subflow",
 		description: "Delegate bounded work to isolated Pi subagents using the pi-subflow orchestration core.",
 		promptSnippet: "subflow: delegate bounded work to isolated Pi subagents; supports single, chain, parallel, and DAG task execution.",
+		renderShell: "self",
 		parameters: Type.Object({
 			agent: Type.Optional(Type.String({ minLength: 1, description: "Agent name for single-task mode." })),
 			task: Type.Optional(Type.String({ minLength: 1, description: "Task text for single-task mode." })),
@@ -86,7 +92,19 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			maxTokens: Type.Optional(Type.Number()),
 			maxTurns: Type.Optional(Type.Number()),
 			maxVerificationRounds: Type.Optional(Type.Number()),
+			model: Type.Optional(Type.String()),
+			thinking: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("minimal"), Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("xhigh")])),
+			role: Type.Optional(Type.Union([Type.Literal("worker"), Type.Literal("verifier")])),
+			tools: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
 		}),
+		renderCall(args) {
+			return new Text(formatCall(args as SubflowToolParams), 0, 0);
+		},
+		renderResult(result) {
+			const details = result.details as (FlowResult & { mode?: "single" | "chain" | "parallel" | "dag" }) | undefined;
+			const text = details?.mode ? formatResult(details, details.mode) : result.content.map((item) => item.type === "text" ? item.text : "").join("\n");
+			return new Text(text, 0, 0);
+		},
 		async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
 			const params = rawParams as SubflowToolParams;
 			const mode = inferMode(params);
@@ -129,9 +147,10 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 				progress?.clear();
 			}
 			await appendRunHistory(resolveHistoryPath(options.historyPath, ctx), { ...result, mode });
+			const details = { ...result, mode };
 			return {
 				content: [{ type: "text" as const, text: formatResult(result, mode) }],
-				details: result,
+				details,
 				isError: result.status !== "completed",
 			};
 		},
@@ -187,7 +206,7 @@ function validateNonEmptyStrings(params: SubflowToolParams): void {
 function tasksForPolicy(params: SubflowToolParams): SubagentTask[] {
 	if (params.tasks) return params.tasks;
 	if (params.chain) return params.chain.map((step) => ({ ...step }));
-	if (params.agent && params.task) return [{ agent: params.agent, task: params.task }];
+	if (params.agent && params.task) return [{ ...(params as SubagentTask), agent: params.agent, task: params.task }];
 	return [];
 }
 
@@ -206,7 +225,7 @@ function applyAgentDefaults(params: SubflowToolParams, agents: Map<string, Agent
 		...params,
 		tasks: params.tasks?.map(apply),
 		chain: params.chain?.map(apply),
-		...(params.agent && params.task ? apply({ agent: params.agent, task: params.task }) : {}),
+		...(params.agent && params.task ? apply({ ...(params as SubagentTask), agent: params.agent, task: params.task }) : {}),
 	};
 }
 
@@ -277,7 +296,7 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 }
 
 async function runSelectedFlow(mode: "single" | "chain" | "parallel" | "dag", params: SubflowToolParams, options: ExecutionOptions): Promise<FlowResult> {
-	if (mode === "single") return runSingle({ agent: params.agent ?? "", task: params.task ?? "", cwd: (params as SubagentTask).cwd, tools: (params as SubagentTask).tools, model: (params as SubagentTask).model, thinking: (params as SubagentTask).thinking }, options);
+	if (mode === "single") return runSingle({ agent: params.agent ?? "", task: params.task ?? "", cwd: (params as SubagentTask).cwd, role: (params as SubagentTask).role, tools: (params as SubagentTask).tools, model: (params as SubagentTask).model, thinking: (params as SubagentTask).thinking }, options);
 	if (mode === "chain") return runChain({ chain: params.chain ?? [] }, options);
 	if (mode === "dag") return runDag({ tasks: params.tasks ?? [] }, options);
 	return runParallel({ tasks: params.tasks ?? [] }, options);
@@ -346,17 +365,18 @@ class RunHistoryBrowser {
 	private renderDetail(width: number): string[] {
 		const run = this.runs[this.selected];
 		if (!run) return ["No run selected"];
+		const resultLines = run.mode === "dag" ? formatDagResult(run.results ?? []) : (run.results ?? []).flatMap((result) => [
+			formatTaskResult(result),
+			`  task: ${result.task}`,
+			...(result.error ? [`  error: ${result.error}`] : []),
+			...(result.output ? [`  output: ${result.output}`] : []),
+		]);
 		const lines = [
 			`pi-subflow run ${run.runId ?? "no-run-id"}`,
 			`${run.createdAt ?? "unknown-time"} • ${run.status} • ${run.mode}`,
 			"esc/q back • results:",
 			"",
-			...(run.results ?? []).flatMap((result) => [
-				`${result.status === "completed" ? "✓" : result.status === "failed" ? "✗" : "-"} ${result.name ?? result.agent} (${result.agent})`,
-				`  task: ${result.task}`,
-				...(result.error ? [`  error: ${result.error}`] : []),
-				...(result.output ? [`  output: ${result.output}`] : []),
-			]),
+			...resultLines,
 		];
 		return lines.map((line) => truncate(line, width));
 	}
@@ -364,6 +384,18 @@ class RunHistoryBrowser {
 
 function truncate(value: string, width: number): string {
 	return value.length <= width ? value : `${value.slice(0, Math.max(0, width - 1))}…`;
+}
+
+function formatCall(params: SubflowToolParams): string {
+	const mode = inferMode(params);
+	const tasks = tasksForPolicy(params);
+	const names = tasks.map((task, index) => task.name ?? `${task.agent}-${index + 1}`).slice(0, 4);
+	return [
+		`subflow · ${mode} · queued`,
+		`${tasks.length} task${tasks.length === 1 ? "" : "s"}${params.timeoutSeconds ? ` · ${params.timeoutSeconds}s timeout` : ""}`,
+		...names.map((name) => `• ${name}`),
+		...(tasks.length > names.length ? [`… ${tasks.length - names.length} more`] : []),
+	].join("\n");
 }
 
 function formatResult(result: FlowResult, mode: "single" | "chain" | "parallel" | "dag"): string {
@@ -386,24 +418,33 @@ function formatResultBody(result: FlowResult, mode: "single" | "chain" | "parall
 
 function formatTaskResult(result: SubagentResult): string {
 	const name = result.name ?? result.agent;
-	if (result.status === "failed") return `✗ ${name}: ${result.error ?? "failed"}`;
-	if (result.status === "skipped") return `- ${name}: skipped`;
+	const identity = formatTaskIdentity(result);
+	if (result.status === "failed") return `✗ ${name} ${identity}: ${result.error ?? "failed"}`;
+	if (result.status === "skipped") return `- ${name} ${identity}: skipped`;
 	const summary = result.output ? firstLine(result.output) : "completed";
-	return `✓ ${name} → ${summary}`;
+	return `✓ ${name} ${identity} → ${summary}`;
 }
 
 function formatDagResult(results: SubagentResult[]): string[] {
 	const roots = results.filter((result) => extractDependencyNames(result.task).length === 0);
-	const lines = ["DAG"];
+	const lines = ["DAG graph"];
 	for (const root of roots.length ? roots : results) {
 		const rootName = root.name ?? root.agent;
-		lines.push(`${rootName} ${statusIcon(root.status)}`);
+		lines.push(`${rootName} ${formatDagNodeMeta(root)} ${statusIcon(root.status)}`);
 		for (const child of results.filter((candidate) => extractDependencyNames(candidate.task).includes(rootName))) {
-			lines.push(`  └─ ${child.name ?? child.agent} ${statusIcon(child.status)}`);
+			lines.push(`  └─ ${child.name ?? child.agent} ${formatDagNodeMeta(child)} ${statusIcon(child.status)}`);
 		}
 	}
-	if (lines.length === 1) lines.push(...results.map((result) => `${result.name ?? result.agent} ${statusIcon(result.status)}`));
+	if (lines.length === 1) lines.push(...results.map((result) => `${result.name ?? result.agent} ${formatDagNodeMeta(result)} ${statusIcon(result.status)}`));
 	return lines;
+}
+
+function formatTaskIdentity(result: SubagentResult): string {
+	return `[${[result.agent, result.model ?? "default"].join(" · ")}]`;
+}
+
+function formatDagNodeMeta(result: SubagentResult): string {
+	return `[${[result.agent, result.role ?? "worker", result.model ?? "default"].join(" · ")}]`;
 }
 
 function extractDependencyNames(task: string): string[] {

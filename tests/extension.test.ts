@@ -10,7 +10,7 @@ class RecordingRunner implements SubagentRunner {
 	calls: RunnerInput[] = [];
 	async run(input: RunnerInput): Promise<SubagentResult> {
 		this.calls.push(input);
-		return { name: input.name, agent: input.agent, task: input.task, status: "completed", output: `ran ${input.agent}: ${input.task}`, usage: {} };
+		return { name: input.name, agent: input.agent, task: input.task, role: input.role, model: input.model, status: "completed", output: `ran ${input.agent}: ${input.task}`, usage: {} };
 	}
 }
 
@@ -147,8 +147,8 @@ test("subflow extension formats successful chain results with summary card and t
 
 	assert.match(result.content[0].text, /subflow · chain · completed/);
 	assert.match(result.content[0].text, /2 tasks · 2 completed · 0 failed/);
-	assert.match(result.content[0].text, /✓ worker-1 → ran worker: alpha/);
-	assert.match(result.content[0].text, /✓ worker-2 → ran worker: beta/);
+	assert.match(result.content[0].text, /✓ worker-1 \[worker · default\] → ran worker: alpha/);
+	assert.match(result.content[0].text, /✓ worker-2 \[worker · default\] → ran worker: beta/);
 	assert.match(result.content[0].text, /final: ran worker: beta/);
 });
 
@@ -166,20 +166,54 @@ test("subflow extension formats failed results with inline error reason", async 
 
 	assert.equal(result.isError, true);
 	assert.match(result.content[0].text, /subflow · single · failed/);
-	assert.match(result.content[0].text, /✗ worker-1: boom/);
+	assert.match(result.content[0].text, /✗ worker-1 \[worker · default\]: boom/);
 });
 
-test("subflow extension formats DAG results as an indented dependency tree", async () => {
+test("subflow extension formats DAG results as an indented dependency tree with agent roles and models", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const runner = new RecordingRunner();
 	const pi = fakePi();
 	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
 
-	const result = await pi.tool.execute("call-1", { tasks: [{ name: "base", agent: "worker", task: "base" }, { name: "verify", agent: "worker", role: "verifier", dependsOn: ["base"], task: "verify" }] }, undefined, undefined, fakeCtx(cwd));
+	const result = await pi.tool.execute("call-1", { tasks: [{ name: "base", agent: "worker", task: "base", model: "openrouter/free" }, { name: "verify", agent: "worker", role: "verifier", dependsOn: ["base"], task: "verify", model: "openai/gpt-mini" }] }, undefined, undefined, fakeCtx(cwd));
 
-	assert.match(result.content[0].text, /DAG/);
-	assert.match(result.content[0].text, /base ✓/);
-	assert.match(result.content[0].text, /└─ verify ✓/);
+	assert.match(result.content[0].text, /DAG graph/);
+	assert.match(result.content[0].text, /base \[worker · worker · openrouter\/free\] ✓/);
+	assert.match(result.content[0].text, /└─ verify \[worker · verifier · openai\/gpt-mini\] ✓/);
+});
+
+test("subflow extension provides a custom result renderer for the visible Pi tool card", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	const result = await pi.tool.execute("call-1", { agent: "worker", task: "visible", model: "openrouter/free" }, undefined, undefined, fakeCtx(cwd));
+	const rendered = pi.tool.renderResult(result, { expanded: true, isPartial: false }, fakeTheme(), fakeRenderContext()).render(80).join("\n");
+
+	assert.equal(pi.tool.renderShell, "self");
+	assert.match(rendered, /subflow · single · completed/);
+	assert.match(rendered, /✓ worker-1 \[worker · openrouter\/free\] → ran worker: visible/);
+});
+
+test("subflow extension history detail shows task models and DAG graph", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const historyPath = join(cwd, "runs.jsonl");
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { historyPath, runnerFactory: () => runner });
+
+	await pi.tool.execute("call-1", { tasks: [{ name: "base", agent: "worker", task: "base", model: "openrouter/free" }, { name: "verify", agent: "worker", role: "verifier", dependsOn: ["base"], task: "verify", model: "openai/gpt-mini" }] }, undefined, undefined, fakeCtx(cwd));
+	const ctx = fakeCtx(cwd);
+	await pi.commands.get("subflow-runs").handler("", ctx);
+
+	const browser = ctx.customCalls[0].component;
+	browser.handleInput("\r");
+	const detail = browser.render(100).join("\n");
+
+	assert.match(detail, /DAG graph/);
+	assert.match(detail, /base \[worker · worker · openrouter\/free\] ✓/);
+	assert.match(detail, /└─ verify \[worker · verifier · openai\/gpt-mini\] ✓/);
 });
 
 test("/subflow-runs opens an interactive history browser", async () => {
@@ -233,6 +267,14 @@ test("subflow extension reports failed flow results as tool errors", async () =>
 async function mkdirp(path: string): Promise<string> {
 	await import("node:fs/promises").then((fs) => fs.mkdir(path, { recursive: true }));
 	return path;
+}
+
+function fakeTheme() {
+	return { fg: (_name: string, text: string) => text, bold: (text: string) => text };
+}
+
+function fakeRenderContext() {
+	return { lastComponent: undefined, expanded: true, isPartial: false, isError: false, showImages: false };
 }
 
 function fakePi() {

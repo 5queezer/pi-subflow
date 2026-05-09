@@ -27,7 +27,7 @@ Flow modules expose simple TypeScript functions for consumers:
 - `runParallel`
 - `runDag`
 
-The package also exposes a Pi extension entry point via `registerPiSubflowExtension` and the default extension export. The extension registers a `subflow` tool that dispatches to the orchestration APIs, displays a lightweight progress widget in interactive sessions, returns compact summary cards with task-level success/error lines and DAG structure, and records JSONL history. It also registers an interactive `/subflow-runs` browser that lists recent runs and opens per-run details.
+The package also exposes a Pi extension entry point via `registerPiSubflowExtension` and the default extension export. The extension registers a `subflow` tool that dispatches to the orchestration APIs, displays a lightweight progress widget in interactive sessions, owns its visible tool card rendering via `renderShell: "self"`, returns compact summary cards with task-level success/error lines, agent/model metadata, and labeled DAG graph structure, and records JSONL history. It also registers an interactive `/subflow-runs` browser that lists recent runs and opens per-run details including DAG graph metadata.
 
 Supporting modules expose Pi-extension-adjacent capabilities without coupling them to tool registration:
 
