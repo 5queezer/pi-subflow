@@ -41,17 +41,26 @@
         }
       },
       "not": {
-        "required": ["tasks", "dagYaml"]
+        "required": [
+          "tasks",
+          "dagYaml"
+        ]
       },
       "anyOf": [
         {
-          "required": ["tasks"]
+          "required": [
+            "tasks"
+          ]
         },
         {
-          "required": ["dagYaml"]
+          "required": [
+            "dagYaml"
+          ]
         },
         {
-          "required": ["uses"]
+          "required": [
+            "uses"
+          ]
         }
       ]
     },
@@ -83,10 +92,17 @@
           "type": "string"
         },
         "role": {
-          "enum": ["worker", "verifier"]
+          "enum": [
+            "worker",
+            "verifier"
+          ]
         },
         "authority": {
-          "enum": ["read_only", "internal_mutation", "external_side_effect"]
+          "enum": [
+            "read_only",
+            "internal_mutation",
+            "external_side_effect"
+          ]
         },
         "tools": {
           "$ref": "#/$defs/stringArray"
@@ -95,7 +111,14 @@
           "type": "string"
         },
         "thinking": {
-          "enum": ["off", "minimal", "low", "medium", "high", "xhigh"]
+          "enum": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
         },
         "expectedSections": {
           "$ref": "#/$defs/stringArray"
@@ -111,14 +134,22 @@
         }
       },
       "not": {
-        "required": ["needs", "dependsOn"]
+        "required": [
+          "needs",
+          "dependsOn"
+        ]
       },
       "anyOf": [
         {
-          "required": ["agent", "task"]
+          "required": [
+            "agent",
+            "task"
+          ]
         },
         {
-          "required": ["workflow"]
+          "required": [
+            "workflow"
+          ]
         }
       ]
     }

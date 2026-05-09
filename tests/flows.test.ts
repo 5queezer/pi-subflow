@@ -154,6 +154,178 @@ test("runDag flows parent dependencies into first nested tasks and exposes a sum
 	assert.match(runner.calls[2].task, /done:review\.api:review api/);
 });
 
+test("runDag executes bounded loops until the until expression becomes true", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => name.endsWith(".editor") ? JSON.stringify({ continue: false }) : "research",
+	});
+
+	const result = await runDag(
+		{
+			tasks: [{
+				name: "research-loop",
+				loop: {
+					maxIterations: 3,
+					body: {
+						researcher: { agent: "mock", task: "research" },
+						editor: { agent: "mock", dependsOn: ["researcher"], task: "edit" },
+					},
+					until: "${editor.output.continue} == false",
+				},
+			}],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.deepEqual(runner.calls.map((call) => call.name), ["research-loop.1.researcher", "research-loop.1.editor"]);
+	assert.match(result.results.find((item) => item.name === "research-loop")?.output ?? "", /"iterationsCompleted":1/);
+});
+
+test("runDag repeats bounded loops to maxIterations when until stays false", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => name.endsWith(".editor") ? JSON.stringify({ continue: true }) : "research",
+	});
+
+	const result = await runDag(
+		{
+			tasks: [{
+				name: "research-loop",
+				loop: {
+					maxIterations: 3,
+					body: {
+						researcher: { agent: "mock", task: "research" },
+						editor: { agent: "mock", dependsOn: ["researcher"], task: "edit" },
+					},
+					until: "${editor.output.continue} == false",
+				},
+			}],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.deepEqual(runner.calls.map((call) => call.name), [
+		"research-loop.1.researcher",
+		"research-loop.1.editor",
+		"research-loop.2.researcher",
+		"research-loop.2.editor",
+		"research-loop.3.researcher",
+		"research-loop.3.editor",
+	]);
+	assert.deepEqual(runner.calls[2].dependsOn, ["research-loop.1.editor"]);
+	assert.match(result.results.find((item) => item.name === "research-loop")?.output ?? "", /"iterationsCompleted":3/);
+});
+
+
+test("runDag fails a bounded loop when a body dependency fails and a downstream body task is skipped", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => {
+			if (name.endsWith(".researcher")) throw new Error("research failed");
+			return JSON.stringify({ continue: false });
+		},
+	});
+
+	const result = await runDag(
+		{
+			tasks: [{
+				name: "research-loop",
+				loop: {
+					maxIterations: 3,
+					body: {
+						researcher: { agent: "mock", task: "research" },
+						editor: { agent: "mock", dependsOn: ["researcher"], task: "edit" },
+					},
+					until: "${editor.output.continue} == false",
+				},
+			}],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "failed");
+	assert.equal(result.results.find((item) => item.name === "research-loop.1.researcher")?.status, "failed");
+	assert.equal(result.results.find((item) => item.name === "research-loop.1.editor")?.status, "skipped");
+	assert.match(result.results.find((item) => item.name === "research-loop")?.output ?? "", /"status":"failed"/);
+	assert.equal(runner.calls.length, 1);
+});
+
+test("runDag rejects missing or non-positive loop maxIterations before running", async () => {
+	const runner = new MockSubagentRunner({ mock: async ({ task }) => `done:${task}` });
+
+	await assert.rejects(
+		runDag(
+			{ tasks: [{ name: "loop", loop: { body: { editor: task("editor") } } }] },
+			{ runner },
+		),
+		/maxIterations must be a positive integer/,
+	);
+	await assert.rejects(
+		runDag(
+			{ tasks: [{ name: "loop", loop: { maxIterations: 0, body: { editor: task("editor") } } }] },
+			{ runner },
+		),
+		/maxIterations must be a positive integer/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
+
+
+test("runDag rejects invalid loop bodies and until references before running", async () => {
+	const runner = new MockSubagentRunner({ mock: async ({ task }) => `done:${task}` });
+
+	await assert.rejects(
+		runDag(
+			{ tasks: [{ name: "loop", loop: { maxIterations: 1, body: {}, until: "${editor.output.continue} == false" } }] },
+			{ runner },
+		),
+		/loop requires body tasks/,
+	);
+	await assert.rejects(
+		runDag(
+			{ tasks: [{ name: "loop", loop: { maxIterations: 1, body: { editor: task("editor") }, until: "${missing.output.continue} == false" } }] },
+			{ runner },
+		),
+		/loop until references missing body task missing/,
+	);
+	await assert.rejects(
+		runDag(
+			{ tasks: [{ name: "loop", loop: { maxIterations: 101, body: { editor: task("editor") } } }] },
+			{ runner },
+		),
+		/loop maxIterations must be at most 100/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
+test("runDag exposes bounded loop summary to downstream dependents", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => name === "publish" ? "published" : JSON.stringify({ continue: false }),
+	});
+
+	const result = await runDag(
+		{
+			tasks: [
+				{
+					name: "research-loop",
+					loop: {
+						maxIterations: 2,
+						body: { editor: { agent: "mock", task: "edit" } },
+						until: "${editor.output.continue} == false",
+					},
+				},
+				{ name: "publish", agent: "mock", role: "verifier", dependsOn: ["research-loop"], task: "publish" },
+			],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.equal(runner.calls.find((call) => call.name === "publish")?.dependsOn?.[0], "research-loop");
+	assert.match(runner.calls.find((call) => call.name === "publish")?.task ?? "", /### research-loop/);
+	assert.match(runner.calls.find((call) => call.name === "publish")?.task ?? "", /"iterationsCompleted":1/);
+});
+
 test("runDag scopes verifier fan-in to nested workflow siblings", async () => {
 	const runner = new MockSubagentRunner({
 		mock: async ({ name, task }) => `done:${name}:${task}`,

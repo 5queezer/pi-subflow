@@ -73,6 +73,8 @@ needs:
 | `name` | string | Required for DAG task arrays; implicit from each `dagYaml` top-level key. |
 | `agent` | string | Required agent name. |
 | `task` | string | Required prompt text for the subagent. |
+| `workflow` | nested workflow | Optional inline child workflow; child task names are namespaced under the parent. |
+| `loop` | bounded repeated sub-DAG | Optional repeated body with `maxIterations`, `body`, and optional `until`. |
 | `cwd` | string | Optional working directory; workflow slash commands reject absolute paths and `..`. |
 | `dependsOn` / `needs` | string[] | DAG dependencies; `needs` is a `dagYaml` alias and cannot be combined with `dependsOn`. |
 | `role` | `worker` \| `verifier` | Omit for normal workers; verifier tasks receive dependency outputs. |
@@ -93,9 +95,14 @@ Validation happens before execution. Invalid graphs fail before any subagent run
 | missing dependency | `task verify depends on missing task missing` |
 | self-dependency | `task loop cannot depend on itself` |
 | dependency cycle | `dependency cycle: a -> b -> a` |
+| invalid loop maxIterations | `task research-loop loop maxIterations must be a positive integer` |
 
 Verifier fan-in shortcut: if a task has `role: "verifier"` and no explicit `dependsOn`, it depends on all non-verifier tasks.
 
 ### Nested workflows
 
 A DAG task can also contain an inline nested workflow with `workflow.tasks` or `workflow.dagYaml`. Child task names are namespaced under the parent task (for example, `review.api`), parent `dependsOn` values flow into workflow roots, and the parent task exposes a synthetic summary result for downstream dependents.
+
+### Bounded loops
+
+A DAG task can repeat a body with `loop: { maxIterations, body, until? }`. The loop parent may omit `agent` and `task`, just like workflow parents. Body tasks are namespaced per iteration (`research-loop.1.editor`), root body tasks inherit the loop parent's dependencies on the first pass, later passes inherit the previous iteration's terminal nodes, and `until` evaluates against current-iteration aliases such as `${editor.output.continue} == false`. The loop parent emits a synthetic summary with the iteration count and final status.

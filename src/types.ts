@@ -17,11 +17,18 @@ export interface WorkflowTask {
 	uses?: string;
 }
 
+export interface LoopTask {
+	maxIterations: number;
+	body: SubagentTask[] | Record<string, SubagentTask>;
+	until?: string;
+}
+
 export interface SubagentTask {
 	name?: string;
 	agent?: string;
 	task?: string;
 	workflow?: WorkflowTask;
+	loop?: LoopTask;
 	cwd?: string;
 	dependsOn?: string[];
 	when?: string;

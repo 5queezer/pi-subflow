@@ -2,10 +2,10 @@ import { namedTask } from "../execution.js";
 import { collectWhenTaskReferences, WhenExpressionError } from "./dag-when.js";
 import type { SubagentTask } from "../types.js";
 
-export type NormalizedDagTask = SubagentTask & { name: string; agent: string; task: string; dependsOn: string[]; synthetic?: "workflow_summary" };
+export type NormalizedDagTask = SubagentTask & { name: string; agent: string; task: string; dependsOn: string[]; synthetic?: "workflow_summary" | "loop_summary" };
 
 export interface DagValidationIssue {
-	code: "duplicate_name" | "missing_dependency" | "self_dependency" | "cycle" | "invalid_when" | "missing_when_task" | "when_task_not_dependency";
+	code: "duplicate_name" | "missing_dependency" | "self_dependency" | "cycle" | "invalid_when" | "missing_when_task" | "when_task_not_dependency" | "invalid_loop";
 	message: string;
 	task?: string;
 	dependency?: string;
@@ -18,6 +18,7 @@ export interface DagValidationResult {
 }
 
 type WorkflowTasksInput = NonNullable<NonNullable<SubagentTask["workflow"]>["tasks"]>;
+const MAX_LOOP_ITERATIONS = 100;
 
 export function expandDagTasks(tasks: SubagentTask[]): NormalizedDagTask[] {
 	return expandDagTaskList(tasks, [], "");
@@ -53,6 +54,27 @@ export function validateDagTasks(tasks: SubagentTask[]): DagValidationResult {
 		}
 	}
 	for (const task of tasksWithDependsOn) {
+		if (task.loop) {
+			if (!Number.isInteger(task.loop.maxIterations) || task.loop.maxIterations <= 0) {
+				issues.push({ code: "invalid_loop", message: `task ${task.name} loop maxIterations must be a positive integer`, task: task.name });
+			} else if (task.loop.maxIterations > MAX_LOOP_ITERATIONS) {
+				issues.push({ code: "invalid_loop", message: `task ${task.name} loop maxIterations must be at most ${MAX_LOOP_ITERATIONS}`, task: task.name });
+			}
+			const bodyNames = loopBodyTaskNames(task.loop.body);
+			if (bodyNames.length === 0) {
+				issues.push({ code: "invalid_loop", message: `task ${task.name} loop requires body tasks`, task: task.name });
+			}
+			if (task.loop.until) {
+				try {
+					for (const reference of collectWhenTaskReferences(task.loop.until)) {
+						if (!bodyNames.includes(reference)) issues.push({ code: "invalid_loop", message: `task ${task.name} loop until references missing body task ${reference}`, task: task.name, dependency: reference });
+					}
+				} catch (error) {
+					const message = error instanceof WhenExpressionError ? error.message : error instanceof Error ? error.message : String(error);
+					issues.push({ code: "invalid_loop", message: `task ${task.name} has invalid loop until expression: ${message}`, task: task.name });
+				}
+			}
+		}
 		if (!task.when) continue;
 		let references: string[];
 		try {
@@ -109,7 +131,7 @@ export function planDagStages<T extends { name: string; dependsOn?: string[] }>(
 	return stages;
 }
 
-function expandDagTaskList(tasks: SubagentTask[], inheritedDependsOn: string[], prefix: string): NormalizedDagTask[] {
+export function expandDagTaskList(tasks: SubagentTask[], inheritedDependsOn: string[], prefix: string): NormalizedDagTask[] {
 	const namedTasks = tasks.map((task, index) => {
 		if (task.workflow && !task.name) throw new Error("nested workflow tasks require a name");
 		return task.workflow ? task as SubagentTask & { name: string } : namedTask(task, index);
@@ -124,6 +146,10 @@ function expandDagTaskList(tasks: SubagentTask[], inheritedDependsOn: string[], 
 function expandDagTask(task: SubagentTask & { name: string }, inheritedDependsOn: string[], prefix: string, scopedVerifierFanIn?: string[]): NormalizedDagTask[] {
 	const taskName = qualifyName(prefix, task.name);
 	const localDependsOn = scopedVerifierFanIn ?? (task.dependsOn && task.dependsOn.length > 0 ? task.dependsOn.map((dependency) => qualifyName(prefix, dependency)) : inheritedDependsOn);
+	if (task.workflow && task.loop) throw new Error(`task ${taskName} cannot set both workflow and loop`);
+	if (task.loop) {
+		return [{ ...task, name: taskName, agent: task.agent ?? "workflow", task: task.task ?? `summary for ${taskName}`, dependsOn: localDependsOn, synthetic: "loop_summary" }];
+	}
 	if (!task.workflow) {
 		if (!task.agent || !task.task) throw new Error(`task ${taskName} requires agent and task`);
 		return [{ ...task, name: taskName, agent: task.agent, task: task.task, dependsOn: localDependsOn }];
@@ -160,6 +186,12 @@ function normalizeWorkflowTasks(tasks: WorkflowTasksInput | undefined, prefix: s
 	});
 	if (isRecord(tasks)) return Object.entries(tasks).map(([name, task]) => ({ ...task, name: task.name ?? name }));
 	throw new Error(`workflow tasks for ${prefix} must be an array or mapping`);
+}
+
+function loopBodyTaskNames(tasks: SubagentTask[] | Record<string, SubagentTask>): string[] {
+	if (Array.isArray(tasks)) return tasks.map((task, index) => task.name ?? `${task.agent}-${index + 1}`);
+	if (isRecord(tasks)) return Object.entries(tasks).map(([name, task]) => task.name ?? name);
+	return [];
 }
 
 function qualifyName(prefix: string, name: string): string {

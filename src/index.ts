@@ -3,6 +3,7 @@ export type {
 	ExecutionOptions,
 	FlowMode,
 	FlowResult,
+	LoopTask,
 	RunnerInput,
 	SubagentResult,
 	SubagentRunner,
@@ -10,6 +11,7 @@ export type {
 	TaskStatus,
 	TraceEvent,
 	UsageStats,
+	WorkflowTask,
 } from "./types.js";
 export { discoverAgents } from "./agents.js";
 export type { AgentDefinition, AgentScope, DiscoverAgentsOptions } from "./agents.js";

@@ -66,6 +66,11 @@ const taskSchema = Type.Object({
 	agent: Type.Optional(Type.String({ minLength: 1 })),
 	task: Type.Optional(Type.String({ minLength: 1 })),
 	workflow: Type.Optional(workflowSchema),
+	loop: Type.Optional(Type.Object({
+		maxIterations: Type.Number(),
+		body: Type.Any(),
+		until: Type.Optional(Type.String({ minLength: 1 })),
+	})),
 	cwd: Type.Optional(Type.String()),
 	dependsOn: Type.Optional(Type.Array(Type.String())),
 	when: Type.Optional(Type.String()),
@@ -92,13 +97,14 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 		name: "subflow",
 		label: "Pi Subflow",
 		description: "Delegate bounded work to isolated Pi subagents using the pi-subflow orchestration core.",
-		promptSnippet: "subflow: delegate bounded work to isolated Pi subagents; supports single, chain, parallel, DAG, and nested workflow task execution.",
+		promptSnippet: "subflow: delegate bounded work to isolated Pi subagents; supports single, chain, parallel, DAG, bounded loop, and nested workflow task execution.",
 		promptGuidelines: [
 			"Use subflow only for bounded multi-agent work with clear inputs/outputs; skip it for small direct tasks.",
-			"Modes: single=one focused task; chain=later steps consume {previous}; parallel=2+ independent tasks; DAG=explicit dependsOn or verifier fan-in.",
+			"Modes: single=one focused task; chain=later steps consume {previous}; parallel=2+ independent tasks; DAG=explicit dependsOn or verifier fan-in; loop=repeat a namespaced body with loop.maxIterations and optional until.",
 			"Use subflow DAG mode with role: \"verifier\" for synthesis/validation needing dependency outputs; task names must be unique, and missing deps/self-deps/cycles fail before execution.",
 			"For LLM-authored DAGs prefer dagYaml: YAML mapping task names to fields; needs aliases dependsOn, but do not set both.",
 			"Nested workflows use workflow.tasks or workflow.dagYaml; children are namespaced under the parent task, parent dependsOn flows into workflow roots, and downstream tasks can depend on the parent workflow name to read its synthetic summary.",
+			"Bounded loops use loop.maxIterations with a body mapping or array; iteration bodies are namespaced per pass, inherit parent dependencies on the first pass, and can stop early when until resolves true against current-iteration aliases like ${editor.output.continue}.",
 			"Use when for conditional DAG execution with placeholders like ${task.output.path}; false conditions skip with a clear error, and references must point to existing tasks.",
 			"Workflow commands: safe .pi/subflow/workflows/*.{yaml,yml} and ~/.pi/agent/subflow/workflows/*.{yaml,yml} register at session start as /stem; generated stubs go in matching prompts dirs only if no manual file exists or replacing marked stubs; UI/autocomplete depends on prompt discovery/session registration.",
 			"Workflow commands prepend recent chat history plus command text to every task, use \"(none provided)\" for empty args, and finish with a notification plus chat-history result.",
@@ -425,7 +431,7 @@ async function confirmPolicies(params: SubflowToolParams, tasks: SubagentTask[],
 function inferMode(params: SubflowToolParams): FlowMode {
 	if (params.chain) return "chain";
 	if (params.dagYaml) return "dag";
-	if (params.tasks) return containsNestedWorkflow(params.tasks) || params.tasks.some((task) => task.dependsOn?.length || task.role === "verifier") ? "dag" : "parallel";
+	if (params.tasks) return containsNestedWorkflowOrLoop(params.tasks) || params.tasks.some((task) => task.dependsOn?.length || task.role === "verifier") ? "dag" : "parallel";
 	if (params.agent && params.task) return "single";
 	throw new Error("subflow requires either agent+task, chain, dagYaml, or tasks");
 }
@@ -439,14 +445,23 @@ function normalizeDagYaml(params: SubflowToolParams): SubflowToolParams {
 function normalizeNestedWorkflows(params: SubflowToolParams): SubflowToolParams {
 	return {
 		...params,
-		tasks: params.tasks?.map((task) => normalizeTaskWorkflow(task)),
+		tasks: params.tasks?.map((task) => normalizeTask(task)),
 	};
 }
 
-function normalizeTaskWorkflow(task: SubagentTask): SubagentTask {
+function normalizeTask(task: SubagentTask): SubagentTask {
 	return {
 		...task,
 		workflow: normalizeWorkflowDefinition(task.workflow, task.name ?? task.agent ?? "workflow task"),
+		loop: normalizeLoopDefinition(task.loop, task.name ?? task.agent ?? "loop task"),
+	};
+}
+
+function normalizeLoopDefinition(loop: SubagentTask["loop"] | undefined, context: string): SubagentTask["loop"] | undefined {
+	if (!loop) return undefined;
+	return {
+		...loop,
+		body: normalizeLoopBody(loop.body, context),
 	};
 }
 
@@ -460,8 +475,8 @@ function normalizeWorkflowDefinition(workflow: SubagentTask["workflow"] | undefi
 
 function normalizeWorkflowTasksValue(tasks: WorkflowTasksValue | undefined, context: string): SubagentTask[] | undefined {
 	if (tasks === undefined) return undefined;
-	if (Array.isArray(tasks)) return tasks.map((task, index) => normalizeTaskWorkflow(namedTask(task, index)));
-	if (isRecord(tasks)) return Object.entries(tasks).map(([name, task]) => normalizeTaskWorkflow({ ...task, name: task.name ?? name }));
+	if (Array.isArray(tasks)) return tasks.map((task, index) => normalizeTask(namedTask(task, index)));
+	if (isRecord(tasks)) return Object.entries(tasks).map(([name, task]) => normalizeTask({ ...task, name: task.name ?? name }));
 	throw new Error(`${context} workflow.tasks must be an array or mapping`);
 }
 
@@ -480,16 +495,19 @@ function parseDagYaml(source: string): SubagentTask[] {
 function parseDagYamlTask(name: string, value: unknown): SubagentTask {
 	if (!isRecord(value) || Array.isArray(value)) throw new Error(`dagYaml task ${name} must be a mapping`);
 	const workflow = parseDagYamlWorkflow(value.workflow, name);
+	const loop = parseDagYamlLoop(value.loop, name);
+	if (workflow && loop) throw new Error(`dagYaml task ${name} cannot set both workflow and loop`);
 	if (value.dependsOn !== undefined && value.needs !== undefined) throw new Error(`dagYaml task ${name} cannot set both needs and dependsOn`);
 	const dependsOn = parseStringArray(value.dependsOn ?? value.needs, `dagYaml task ${name} dependsOn`);
 	const agent = optionalString(value.agent, `dagYaml task ${name} agent`);
 	const task = optionalString(value.task, `dagYaml task ${name} task`);
-	if (!workflow && (typeof agent !== "string" || typeof task !== "string")) throw new Error(`dagYaml task ${name} requires agent and task strings`);
+	if (!workflow && !loop && (typeof agent !== "string" || typeof task !== "string")) throw new Error(`dagYaml task ${name} requires agent and task strings`);
 	return {
 		name,
 		agent,
 		task: task?.trimEnd(),
 		workflow,
+		loop,
 		cwd: optionalString(value.cwd, `dagYaml task ${name} cwd`),
 		dependsOn,
 		when: optionalString(value.when, `dagYaml task ${name} when`),
@@ -515,6 +533,25 @@ function parseDagYamlWorkflow(value: unknown, name: string): SubagentTask["workf
 	};
 }
 
+function parseDagYamlLoop(value: unknown, name: string): SubagentTask["loop"] | undefined {
+	if (value === undefined) return undefined;
+	if (!isRecord(value) || Array.isArray(value)) throw new Error(`dagYaml task ${name} loop must be a mapping`);
+	if (value.maxIterations === undefined) throw new Error(`dagYaml task ${name} loop requires maxIterations`);
+	if (typeof value.maxIterations !== "number" || !Number.isFinite(value.maxIterations)) throw new Error(`dagYaml task ${name} loop maxIterations must be a number`);
+	if (value.body === undefined) throw new Error(`dagYaml task ${name} loop requires body`);
+	return {
+		maxIterations: value.maxIterations,
+		body: parseLoopBodyValue(value.body, `dagYaml task ${name} loop.body`),
+		until: optionalString(value.until, `dagYaml task ${name} loop.until`),
+	};
+}
+
+function parseLoopBodyValue(value: unknown, context: string): NonNullable<SubagentTask["loop"]>["body"] {
+	if (Array.isArray(value)) return value.map((task, index) => parseWorkflowTask(task, `${context}[${index}]`, index + 1));
+	if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([name, task]) => [name, parseWorkflowTask(task, `${context}.${name}`, name)]));
+	throw new Error(`${context} must be an array or mapping`);
+}
+
 function parseWorkflowTasksValue(tasks: unknown, context: string): SubagentTask[] | undefined {
 	if (tasks === undefined) return undefined;
 	if (Array.isArray(tasks)) return tasks.map((task, index) => parseWorkflowTask(task, `${context}[${index}]`, index + 1));
@@ -526,14 +563,17 @@ function parseWorkflowTask(value: unknown, context: string, name: string | numbe
 	if (!isRecord(value) || Array.isArray(value)) throw new Error(`${context} must be a mapping`);
 	if (value.dependsOn !== undefined && value.needs !== undefined) throw new Error(`${context} cannot set both needs and dependsOn`);
 	const workflow = parseDagYamlWorkflow(value.workflow, `${context}`);
+	const loop = parseDagYamlLoop(value.loop, `${context}`);
+	if (workflow && loop) throw new Error(`${context} cannot set both workflow and loop`);
 	const agent = optionalString(value.agent, `${context} agent`);
 	const task = optionalString(value.task, `${context} task`);
-	if (!workflow && (typeof agent !== "string" || typeof task !== "string")) throw new Error(`${context} requires agent and task strings`);
+	if (!workflow && !loop && (typeof agent !== "string" || typeof task !== "string")) throw new Error(`${context} requires agent and task strings`);
 	return {
 		name: typeof name === "string" ? name : optionalString(value.name, `${context} name`),
 		agent,
 		task: task?.trimEnd(),
 		workflow,
+		loop,
 		cwd: optionalString(value.cwd, `${context} cwd`),
 		dependsOn: parseStringArray(value.dependsOn ?? value.needs, `${context} dependsOn`),
 		when: optionalString(value.when, `${context} when`),
@@ -583,7 +623,7 @@ function optionalThinking(value: unknown, name: string): SubagentTask["thinking"
 
 function validateNonEmptyStrings(tasks: SubagentTask[]): void {
 	for (const task of tasks) {
-		if (task.workflow) continue;
+		if (task.workflow || task.loop) continue;
 		if (!task.agent?.trim()) throw new Error("agent must be a non-empty string");
 		if (!task.task?.trim()) throw new Error("task must be a non-empty string");
 	}
@@ -601,14 +641,21 @@ function flattenPolicyTasks(tasks: SubagentTask[]): SubagentTask[] {
 	const flattened: SubagentTask[] = [];
 	for (const task of tasks) {
 		if (task.workflow?.tasks) flattened.push(...flattenPolicyWorkflowTasks(task.workflow.tasks));
+		else if (task.loop?.body) flattened.push(...flattenPolicyLoopTasks(task.loop.body));
 		else flattened.push(task);
 	}
 	return flattened;
 }
 
 function flattenPolicyWorkflowTasks(tasks: WorkflowTasksValue): SubagentTask[] {
-	if (Array.isArray(tasks)) return tasks.flatMap((task) => task.workflow?.tasks ? flattenPolicyWorkflowTasks(task.workflow.tasks) : [task]);
-	if (isRecord(tasks)) return Object.values(tasks).flatMap((task) => task.workflow?.tasks ? flattenPolicyWorkflowTasks(task.workflow.tasks) : [task]);
+	if (Array.isArray(tasks)) return tasks.flatMap((task) => task.workflow?.tasks ? flattenPolicyWorkflowTasks(task.workflow.tasks) : task.loop?.body ? flattenPolicyLoopTasks(task.loop.body) : [task]);
+	if (isRecord(tasks)) return Object.values(tasks).flatMap((task) => task.workflow?.tasks ? flattenPolicyWorkflowTasks(task.workflow.tasks) : task.loop?.body ? flattenPolicyLoopTasks(task.loop.body) : [task]);
+	return [];
+}
+
+function flattenPolicyLoopTasks(tasks: NonNullable<SubagentTask["loop"]>["body"]): SubagentTask[] {
+	if (Array.isArray(tasks)) return tasks.flatMap((task) => task.workflow?.tasks ? flattenPolicyWorkflowTasks(task.workflow.tasks) : task.loop?.body ? flattenPolicyLoopTasks(task.loop.body) : [task]);
+	if (isRecord(tasks)) return Object.values(tasks).flatMap((task) => task.workflow?.tasks ? flattenPolicyWorkflowTasks(task.workflow.tasks) : task.loop?.body ? flattenPolicyLoopTasks(task.loop.body) : [task]);
 	return [];
 }
 
@@ -632,9 +679,18 @@ function applyAgentDefaults(params: SubflowToolParams, agents: Map<string, Agent
 					? Object.fromEntries(Object.entries(task.workflow.tasks).map(([name, child]) => [name, apply(child as SubagentTask)]))
 					: task.workflow.tasks,
 		} : undefined;
+		const loop = "loop" in task && task.loop ? {
+			...task.loop,
+			body: Array.isArray(task.loop.body)
+				? task.loop.body.map((child) => apply(child as SubagentTask))
+				: isRecord(task.loop.body)
+					? Object.fromEntries(Object.entries(task.loop.body).map(([name, child]) => [name, apply(child as SubagentTask)]))
+					: task.loop.body,
+		} : undefined;
 		return {
 			...task,
 			workflow,
+			loop,
 			cwd: task.cwd ?? defaultCwd,
 			tools: task.tools ?? agent?.tools,
 			model: task.model ?? agent?.model,
@@ -649,12 +705,18 @@ function applyAgentDefaults(params: SubflowToolParams, agents: Map<string, Agent
 	};
 }
 
-function containsNestedWorkflow(tasks: SubagentTask[]): boolean {
-	return tasks.some((task) => Boolean(task.workflow));
+function containsNestedWorkflowOrLoop(tasks: SubagentTask[]): boolean {
+	return tasks.some((task) => Boolean(task.workflow || task.loop));
 }
 
 function isWorkflowTask(task: SubagentTask | ChainStep): task is SubagentTask {
 	return "workflow" in task;
+}
+
+function normalizeLoopBody(tasks: NonNullable<SubagentTask["loop"]>["body"], context: string): NonNullable<SubagentTask["loop"]>["body"] {
+	if (Array.isArray(tasks)) return tasks.map((task, index) => normalizeTask(namedTask(task, index)));
+	if (isRecord(tasks)) return Object.fromEntries(Object.entries(tasks).map(([name, task]) => [name, normalizeTask({ ...task, name: task.name ?? name })]));
+	throw new Error(`${context} loop body must be an array or mapping`);
 }
 
 class ProgressRunner implements SubagentRunner {

@@ -8,7 +8,7 @@ Use it when work benefits from independent research/review streams, staged hando
 
 ## Features
 
-- Single, chain, parallel, DAG, and nested-workflow subagent execution
+- Single, chain, parallel, DAG, bounded-loop, and nested-workflow subagent execution
 - DAG preflight validation with precise diagnostics
 - `dagYaml` shorthand for concise LLM-authored task graphs
 - Inline nested workflows with parent/child namespacing and synthetic summaries
@@ -62,7 +62,7 @@ flowchart TD
 | Single | exactly one focused subagent task is useful | `agent` + `task` |
 | Chain | each step needs the previous step's output | `chain: [{ agent, task }]` with optional `{previous}` |
 | Parallel | 2+ tasks are independent | `tasks: [...]` with no `dependsOn` |
-| DAG | tasks have named dependencies or verifier fan-in | `tasks: [...]` with `dependsOn`, or `dagYaml` |
+| DAG | tasks have named dependencies, verifier fan-in, or bounded loops | `tasks: [...]` with `dependsOn`, `loop`, or `dagYaml` |
 | Nested workflows | a task contains an inline child workflow | `workflow: { tasks: [...] }` or `workflow: { dagYaml }` |
 
 Example DAG shorthand:
@@ -83,7 +83,7 @@ final-verdict:
   task: Synthesize the findings into a prioritized verdict
 ```
 
-Verifier tasks receive dependency outputs automatically. A verifier with no explicit `dependsOn` depends on all non-verifier tasks. `dagYaml` is parsed as YAML, so arrays can be written inline (`needs: [api-review, test-review]`) or as block sequences. Nested workflows namespace child task names under the parent, flow the parent `dependsOn` into workflow roots, and expose a synthetic parent summary for downstream dependents.
+Verifier tasks receive dependency outputs automatically. A verifier with no explicit `dependsOn` depends on all non-verifier tasks. `dagYaml` is parsed as YAML, so arrays can be written inline (`needs: [api-review, test-review]`) or as block sequences. Nested workflows namespace child task names under the parent, flow the parent `dependsOn` into workflow roots, and expose a synthetic parent summary for downstream dependents. Bounded loops repeat a namespaced body up to `loop.maxIterations`, can stop early with `loop.until`, and expose a synthetic loop summary for downstream dependents.
 
 ## Workflow templates
 

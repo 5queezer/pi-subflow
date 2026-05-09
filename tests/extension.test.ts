@@ -19,12 +19,13 @@ test("subflow extension exposes LLM-facing prompt guidance", () => {
 	const pi = fakePi();
 	registerPiSubflowExtension(pi);
 
-	assert.match(pi.tool.promptSnippet, /single, chain, parallel, DAG, and nested workflow/);
+	assert.match(pi.tool.promptSnippet, /single, chain, parallel, DAG, bounded loop, and nested workflow/);
 	assert(pi.tool.promptGuidelines.some((line: string) => /Use subflow DAG mode/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /role: "verifier"/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /only use "worker" or "verifier"/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /task names must be unique/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /workflow\.tasks/.test(line)));
+	assert(pi.tool.promptGuidelines.some((line: string) => /loop\.maxIterations/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /minimum tool subset/.test(line)));
 });
 
@@ -141,6 +142,33 @@ publish:
 	assert.match(runner.calls[2].task, /Dependency outputs/);
 	assert.match(runner.calls[2].task, /review\.api/);
 	assert.match(runner.calls[2].task, /review\.docs/);
+});
+
+ test("subflow extension parses loop body mappings in dagYaml", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	const result = await pi.tool.execute("call-1", {
+		dagYaml: `
+research-loop:
+  loop:
+    maxIterations: 1
+    body:
+      researcher:
+        agent: reviewer
+        task: Research
+      editor:
+        agent: reviewer
+        dependsOn: [researcher]
+        task: Edit
+`,
+	}, undefined, undefined, fakeCtx(cwd));
+
+	assert.equal(result.isError, false);
+	assert.deepEqual(runner.calls.map((call) => call.name), ["research-loop.1.researcher", "research-loop.1.editor"]);
+	assert.match(result.details.results.find((item: any) => item.name === "research-loop")?.output ?? "", /"iterationsCompleted":1/);
 });
 
 test("subflow extension parses DAG YAML when conditions into task objects", async () => {
