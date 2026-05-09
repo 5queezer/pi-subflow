@@ -2,6 +2,7 @@
 
 - [[Workflow modes|Workflow-modes]]
 - [[DAGs|DAGs]]
+- [[Workflow patterns|Workflow-patterns]]
 - [[Installation|Installation]]
 - [[Usage in Pi|Usage-in-Pi]]
 - [[Workflow templates and slash commands|Workflow-templates-and-slash-commands]]

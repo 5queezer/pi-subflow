@@ -93,5 +93,5 @@ function parseFrontmatter(value: string): Record<string, unknown> {
 }
 
 function unquote(value: string): string {
-	return value.replace(/^[\'\"]|[\'\"]$/g, "");
+	return value.replace(/^['"]|['"]$/g, "");
 }

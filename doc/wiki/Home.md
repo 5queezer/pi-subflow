@@ -10,6 +10,7 @@ These wiki pages are sourced from `doc/wiki/` in the main repository. Edit them 
 
 - [[Workflow modes|Workflow-modes]]
 - [[DAGs|DAGs]]
+- [[Workflow patterns|Workflow-patterns]]
 - [[Installation|Installation]]
 - [[Usage in Pi|Usage-in-Pi]]
 - [[Workflow templates and slash commands|Workflow-templates-and-slash-commands]]
