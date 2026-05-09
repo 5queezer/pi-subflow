@@ -1,0 +1,56 @@
+name: Sync Wiki
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - "doc/wiki/**"
+      - "scripts/sync-wiki.mjs"
+      - ".github/workflows/sync-wiki.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-wiki
+  cancel-in-progress: false
+
+jobs:
+  sync-wiki:
+    name: Sync wiki pages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Checkout wiki
+        uses: actions/checkout@v6
+        with:
+          repository: 5queezer/pi-subflow.wiki
+          path: pi-subflow.wiki
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Sync wiki files
+        run: node scripts/sync-wiki.mjs --wiki-dir pi-subflow.wiki
+
+      - name: Push wiki changes
+        working-directory: pi-subflow.wiki
+        run: |
+          if git diff --quiet; then
+            echo "Wiki is already up to date."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Sync wiki from repository doc"
+          git push
