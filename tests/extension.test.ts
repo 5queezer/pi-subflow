@@ -90,6 +90,19 @@ test("subflow extension lets explicit task model, thinking, tools, and cwd overr
 	assert.equal(runner.calls[0].cwd, "/tmp/elsewhere");
 });
 
+test("subflow extension rejects tools outside the runtime allowlist", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	await assert.rejects(
+		() => pi.tool.execute("call-1", { agent: "worker", task: "Inspect auth", tools: ["read", "shell-root"] }, undefined, undefined, fakeCtx(cwd)),
+		/unknown or unavailable tool: shell-root/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
 test("subflow extension defaults chain step cwd to the Pi context cwd", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const runner = new RecordingRunner();

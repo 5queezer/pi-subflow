@@ -18,10 +18,13 @@ export interface PiSubflowExtensionOptions {
 	userDir?: string;
 	projectDir?: string;
 	historyPath?: string | ((ctx: ExtensionContext) => string);
+	allowedTools?: string[];
 	runnerFactory?: (input: { agents: Map<string, AgentDefinition>; ctx: ExtensionContext; params: SubflowToolParams }) => SubagentRunner;
 }
 
 type RiskTolerance = "low" | "medium" | "high";
+
+const DEFAULT_ALLOWED_TOOLS = new Set(["read", "bash", "grep", "find", "ls", "edit", "write"]);
 
 interface SubflowToolParams {
 	agent?: string;
@@ -125,6 +128,7 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 				projectDir: options.projectDir ?? join(ctx.cwd, ".pi", "agents"),
 			});
 			const effectiveParams = applyAgentDefaults(params, agents, ctx.cwd);
+			validateToolAllowlist(tasksForPolicy(effectiveParams), options.allowedTools);
 			const baseRunner = options.runnerFactory?.({ agents, ctx, params: effectiveParams }) ?? new PiSdkRunner({ agentDefinitions: agents });
 			const progress = createProgressReporter(ctx, mode, tasksForPolicy(effectiveParams).length, params.timeoutSeconds);
 			const runner = progress ? new ProgressRunner(baseRunner, progress) : baseRunner;
@@ -208,6 +212,15 @@ function tasksForPolicy(params: SubflowToolParams): SubagentTask[] {
 	if (params.chain) return params.chain.map((step) => ({ ...step }));
 	if (params.agent && params.task) return [{ ...(params as SubagentTask), agent: params.agent, task: params.task }];
 	return [];
+}
+
+function validateToolAllowlist(tasks: SubagentTask[], allowedTools?: string[]): void {
+	const allowlist = allowedTools ? new Set(allowedTools) : DEFAULT_ALLOWED_TOOLS;
+	for (const task of tasks) {
+		for (const tool of task.tools ?? []) {
+			if (!allowlist.has(tool)) throw new Error(`unknown or unavailable tool: ${tool}`);
+		}
+	}
 }
 
 function applyAgentDefaults(params: SubflowToolParams, agents: Map<string, AgentDefinition>, defaultCwd: string): SubflowToolParams {
