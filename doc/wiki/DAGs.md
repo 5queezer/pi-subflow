@@ -36,7 +36,7 @@ Example task array:
 
 ### `dagYaml` shorthand
 
-For LLM-authored DAGs, the Pi tool accepts `dagYaml`. The YAML root is a mapping from task names to task fields. `needs` is normalized to `dependsOn`; use one or the other, not both.
+For LLM-authored DAGs, the Pi tool accepts `dagYaml`. The YAML root is a mapping from task names to task fields. `needs` is an authoring alias normalized to `dependsOn` before DAG validation; use one or the other, not both. If both appear on one `dagYaml` task, parsing fails instead of choosing a winner.
 
 ```yaml
 api-review:
@@ -70,12 +70,12 @@ The shorthand is only an authoring format at the Pi tool boundary. Internally it
 | `cwd` | string | Optional working directory; workflow slash commands reject absolute paths and `..`. |
 | `dependsOn` / `needs` | string[] | DAG dependencies; `needs` is a `dagYaml` alias and cannot be combined with `dependsOn`. |
 | `role` | `worker` \| `verifier` | Omit for normal workers; verifier tasks receive dependency outputs. |
-| `authority` | `read_only` \| `internal_mutation` \| `external_side_effect` | Drives retry and policy behavior. |
+| `authority` | `read_only` \| `internal_mutation` \| `external_side_effect` | Drives retry and policy behavior. `external_side_effect` is high risk because it can affect external systems and requires confirmation unless explicitly allowed by policy/risk settings. |
 | `tools` | string[] | Minimum tool subset for the subagent. |
 | `model` | string | Model identifier passed through the Pi model registry by the SDK runner. |
 | `thinking` | `off` \| `minimal` \| `low` \| `medium` \| `high` \| `xhigh` | Can be set globally, per task, or in agent frontmatter. |
-| `expectedSections` | string[] | Markdown headings that must appear in successful task output. |
-| `jsonSchema.required` | string[] | Minimal JSON-output validation: task output must parse as JSON and named required fields must be present. |
+| `expectedSections` | string[] | Markdown headings that must appear in successful task output; prefer this for markdown output contracts. |
+| `jsonSchema.required` | string[] | Minimal JSON-output validation only: task output must parse as JSON and named top-level required fields must be present. This is not full JSON Schema validation. |
 
 ### DAG validation
 

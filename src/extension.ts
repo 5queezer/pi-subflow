@@ -83,18 +83,15 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 		description: "Delegate bounded work to isolated Pi subagents using the pi-subflow orchestration core.",
 		promptSnippet: "subflow: delegate bounded work to isolated Pi subagents; supports single, chain, parallel, and DAG task execution.",
 		promptGuidelines: [
-			"Use subflow for bounded multi-agent work with clear inputs and expected outputs; do not use subflow for small direct tasks you can do yourself.",
-			"Use subflow single mode when exactly one focused subagent task is needed.",
-			"Use subflow chain mode when later steps must consume the previous step via {previous}.",
-			"Use subflow parallel mode when 2+ independent tasks can run concurrently and do not depend on each other.",
-			"Use subflow DAG mode when tasks have explicit dependsOn relationships; set role: \"verifier\" for synthesis or validation nodes that need dependency outputs.",
-			"For concise LLM-authored DAGs, prefer dagYaml: a small YAML subset whose keys are task names; use needs as an alias for dependsOn.",
-			"Repo-local .pi/subflow/workflows/*.yaml or *.yml and user ~/.pi/agent/subflow/workflows/*.yaml or *.yml files with safe basenames are registered by the extension during session startup as commands named after the file stem, such as /code-review; generated prompt stubs are written under .pi/subflow/prompts or ~/.pi/agent/subflow/prompts only when no manual prompt file with the same name exists (or when replacing a marked generated stub), while Pi UI/autocomplete visibility depends on prompt discovery and session command registration.",
-			"Workflow commands prepend recent chat history plus text after the command to every workflow task, use \"(none provided)\" for empty arguments, and report completion with a notification plus a chat-history result message.",
-			"For subflow task roles, only use \"worker\" or \"verifier\". Omit role to default to worker; do not invent roles like \"researcher\".",
-			"For subflow DAGs, task names must be unique; missing dependencies, self-dependencies, and dependency cycles are rejected before execution.",
-			"Set subflow tools to the minimum tool subset each subagent needs. Omit tools only when the default Pi tool set is appropriate.",
-			"Set subflow model and thinking per task when quality/cost tradeoffs differ across subagents; supported thinking values are off, minimal, low, medium, high, and xhigh.",
+			"Use subflow only for bounded multi-agent work with clear inputs/outputs; skip it for small direct tasks.",
+			"Modes: single=one focused task; chain=later steps consume {previous}; parallel=2+ independent tasks; DAG=explicit dependsOn or verifier fan-in.",
+			"Use subflow DAG mode with role: \"verifier\" for synthesis/validation needing dependency outputs; task names must be unique, and missing deps/self-deps/cycles fail before execution.",
+			"For LLM-authored DAGs prefer dagYaml: YAML mapping task names to fields; needs aliases dependsOn, but do not set both.",
+			"Workflow commands: safe .pi/subflow/workflows/*.{yaml,yml} and ~/.pi/agent/subflow/workflows/*.{yaml,yml} register at session start as /stem; generated stubs go in matching prompts dirs only if no manual file exists or replacing marked stubs; UI/autocomplete depends on prompt discovery/session registration.",
+			"Workflow commands prepend recent chat history plus command text to every task, use \"(none provided)\" for empty args, and finish with a notification plus chat-history result.",
+			"For roles, only use \"worker\" or \"verifier\"; omit role for worker and do not invent roles like \"researcher\".",
+			"Set the minimum tool subset each subagent needs; omit tools only for the default Pi set. Set model/thinking per task when quality/cost differ; thinking: off,minimal,low,medium,high,xhigh.",
+			"Safety/output: external_side_effect is high-risk and needs UI confirmation unless explicitly allowed with sufficient risk tolerance; use expectedSections for markdown and jsonSchema.required only for minimal JSON required-field checks, not full JSON Schema.",
 		],
 		renderShell: "self",
 		parameters: Type.Object({
@@ -639,7 +636,25 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 	const running = new Map<string, number>();
 	const results = new Map<string, SubagentResult>();
 	let interval: ReturnType<typeof setInterval> | undefined;
+	let runningFrame = 0;
+	let stopped = false;
+	const stop = () => {
+		if (interval) clearInterval(interval);
+		interval = undefined;
+		stopped = true;
+	};
+	const safeSetWidget = (value: unknown, options?: unknown): boolean => {
+		if (stopped) return false;
+		try {
+			setWidget.call(ui, "pi-subflow-progress", value, options);
+			return true;
+		} catch {
+			stop();
+			return false;
+		}
+	};
 	const render = () => {
+		if (stopped) return;
 		const completed = [...results.values()].filter((result) => result.status === "completed").length;
 		const failed = [...results.values()].filter((result) => result.status === "failed").length;
 		const skipped = [...results.values()].filter((result) => result.status === "skipped").length;
@@ -647,21 +662,23 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 		const status = failed > 0 ? "failed" : completed + skipped >= total && total > 0 ? "completed" : "running";
 		const timeout = timeoutSeconds ? ` · ${timeoutSeconds}s timeout` : "";
 		const elapsed = formatDuration(Date.now() - startedAt);
+		const runningIcon = statusIcon("running", runningFrame);
 		const taskLines = [
-			...[...results.values()].map((result) => `${statusIcon(result.status)} ${result.name ?? result.agent}${result.error ? `: ${result.error}` : result.output ? ` → ${firstLine(result.output)}` : ""}`),
-			...[...running.entries()].filter(([name]) => !results.has(name)).map(([name, start]) => `⏳ ${name} · ${formatDuration(Date.now() - start)} elapsed`),
+			...[...results.values()].map((result) => `${statusIcon(result.status, runningFrame)} ${result.name ?? result.agent}${result.error ? `: ${result.error}` : result.output ? ` → ${firstLine(result.output)}` : ""}`),
+			...[...running.entries()].filter(([name]) => !results.has(name)).map(([name, start]) => `${runningIcon} ${name} · ${formatDuration(Date.now() - start)} elapsed`),
 		];
 		const lines = [
 			`subflow · ${mode} · ${status}`,
 			`${total} task${total === 1 ? "" : "s"} · ${runningCount} running · ${completed} completed · ${failed} failed · ${skipped} skipped · ${elapsed} elapsed${timeout}`,
 			...(taskLines.length ? taskLines : ["waiting to start"]),
 		];
-		setWidget.call(ctx.ui, "pi-subflow-progress", lines, { placement: "belowEditor" });
+		if (safeSetWidget(lines, { placement: "belowEditor" })) runningFrame += 1;
 	};
 	return {
 		start() {
 			render();
-			interval = setInterval(render, 1000);
+			if (stopped) return;
+			interval = setInterval(render, PROGRESS_FRAME_INTERVAL_MS);
 			interval.unref?.();
 		},
 		taskStarted(name) {
@@ -674,8 +691,14 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 			render();
 		},
 		clear() {
-			if (interval) clearInterval(interval);
-			setWidget.call(ctx.ui, "pi-subflow-progress", undefined);
+			const shouldClearWidget = !stopped;
+			stop();
+			if (!shouldClearWidget) return;
+			try {
+				setWidget.call(ui, "pi-subflow-progress", undefined);
+			} catch {
+				// Ignore stale UI contexts during session replacement/reload.
+			}
 		},
 	};
 }
@@ -757,10 +780,13 @@ function formatDagNodeMeta(result: SubagentResult): string {
 	return `[${[result.agent, result.role ?? "worker", result.model ?? "default"].join(" · ")}]`;
 }
 
-function statusIcon(status: SubagentResult["status"]): string {
+const PROGRESS_FRAME_INTERVAL_MS = 60;
+const RUNNING_STATUS_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"].map((frame) => `\x1b[32m${frame}\x1b[0m`);
+
+function statusIcon(status: SubagentResult["status"], frame = 0): string {
 	if (status === "completed") return "✓";
 	if (status === "failed") return "✗";
-	if (status === "running") return "⏳";
+	if (status === "running") return RUNNING_STATUS_FRAMES[frame % RUNNING_STATUS_FRAMES.length] ?? RUNNING_STATUS_FRAMES[0];
 	return "-";
 }
 

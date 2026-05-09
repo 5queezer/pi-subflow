@@ -16,7 +16,7 @@ Use it when work benefits from independent research/review streams, staged hando
 - Retry, timeout, max-turn, and budget helpers
 - Project/user agent discovery with policy gates
 - Runtime tool allowlist checks
-- Workflow slash commands from `.pi/subflow/workflows/*.yaml` and `~/.pi/agent/subflow/workflows/*.yaml`
+- Workflow slash commands from `.pi/subflow/workflows/*.{yaml,yml}` and `~/.pi/agent/subflow/workflows/*.{yaml,yml}`
 - JSONL run history at `.pi/subflow/runs.jsonl`
 
 ## Quick start
@@ -97,20 +97,20 @@ Example workflows live in [`examples/workflows/`](examples/workflows/). They adv
 - [`docs-consistency.yaml`](examples/workflows/docs-consistency.yaml)
 - [`bug-investigation.yaml`](examples/workflows/bug-investigation.yaml)
 
-Copy a template into `.pi/subflow/workflows/` to register it as a slash command at Pi startup:
+Copy a `.yaml` or `.yml` template into `.pi/subflow/workflows/` to register it as a slash command at Pi session startup:
 
 ```text
 .pi/subflow/workflows/code-review.yaml -> /code-review
+.pi/subflow/workflows/code-review.yml  -> /code-review
 ```
 
-User-level workflow files are also supported under `~/.pi/agent/subflow/workflows/`. Run `/reload` after adding, removing, or renaming workflow files.
+User-level workflow files are also supported under `~/.pi/agent/subflow/workflows/`. If a project and user workflow have the same command name, the project workflow wins. During prompt-resource discovery, the extension writes generated prompt stubs under `.pi/subflow/prompts/` or `~/.pi/agent/subflow/prompts/` when no manual prompt file with the same name exists, so Pi can discover the workflow prompt surface. Run `/reload` or start a new session after adding, removing, or renaming workflow files.
 
 ## Development
 
 ```bash
 npm install
-npm run build
-npm test
+npm run build && npm test
 ```
 
 Before submitting changes, run:
@@ -121,7 +121,7 @@ npm run build && npm test
 
 ## Documentation
 
-- [GitHub Wiki](https://github.com/5queezer/pi-subflow/wiki) — detailed usage, TypeScript API, configuration, policy, architecture, roadmap notes for conditional branches, nested workflows, dynamic dependency graphs, and troubleshooting. Source pages live in [`doc/wiki/`](doc/wiki/) and are published with `npm run wiki:sync`.
+- [GitHub Wiki](https://github.com/5queezer/pi-subflow/wiki) — detailed usage, TypeScript API, configuration, policy, architecture, roadmap notes for conditional branches, nested workflows, dynamic dependency graphs, and troubleshooting. Source pages live in [`doc/wiki/`](doc/wiki/) and are published with `npm run wiki:sync` or `npm run wiki:sync:push`.
 - [`schemas/subflow-dag.schema.json`](schemas/subflow-dag.schema.json) — YAML schema for workflow templates
 - [`doc/adr/`](doc/adr/) — architecture decision records
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution workflow

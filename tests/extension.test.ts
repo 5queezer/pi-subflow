@@ -248,8 +248,45 @@ test("subflow extension shows task-level progress with mode, counts, timeout, an
 	assert.match(rendered, /2 tasks · \d+ running · 2 completed · 0 failed/);
 	assert.match(rendered, /120s timeout/);
 	assert.match(rendered, /✓ one/);
-	assert.match(rendered, /⏳ two|✓ two/);
+	assert.doesNotMatch(rendered, /[⏳⌛]/);
+	assert.doesNotMatch(rendered, /\x1b\[32m[·•●]\x1b\[0m/);
+	assert.match(rendered, /\x1b\[3[2;].*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏].*two|✓ two/);
 	assert(ctx.widgets.some((entry) => entry.key === "pi-subflow-progress" && entry.value === undefined));
+});
+
+test("subflow extension stops progress updates when the UI context becomes stale", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	let release!: () => void;
+	let stale = false;
+	const started = Promise.withResolvers<void>();
+	const runner: SubagentRunner = {
+		async run(input) {
+			started.resolve();
+			await new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			return { name: input.name, agent: input.agent, task: input.task, status: "completed", output: "ok", usage: {} };
+		},
+	};
+	const pi = fakePi();
+	const ctx = fakeCtx(cwd);
+	const ui = ctx.ui;
+	Object.defineProperty(ctx, "ui", {
+		get() {
+			if (stale) throw new Error("This extension ctx is stale after session replacement or reload.");
+			return ui;
+		},
+	});
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	const execution = pi.tool.execute("call-1", { agent: "worker", task: "slow", timeoutSeconds: 10 }, undefined, undefined, ctx);
+	await started.promise;
+	stale = true;
+	await new Promise((resolve) => setTimeout(resolve, 1100));
+	release();
+	const result = await execution;
+
+	assert.equal(result.isError, false);
 });
 
 test("subflow extension refreshes progress while tasks are still running", async () => {
@@ -271,14 +308,19 @@ test("subflow extension refreshes progress while tasks are still running", async
 
 	const execution = pi.tool.execute("call-1", { agent: "worker", task: "slow", timeoutSeconds: 10 }, undefined, undefined, ctx);
 	await started.promise;
-	await new Promise((resolve) => setTimeout(resolve, 1100));
+	await new Promise((resolve) => setTimeout(resolve, 220));
+	const runningRenders = ctx.widgets.filter((entry) => entry.key === "pi-subflow-progress" && Array.isArray(entry.value)).length;
+	assert(runningRenders >= 4, `expected high-frame-rate progress updates, got ${runningRenders}`);
+	await new Promise((resolve) => setTimeout(resolve, 880));
 
 	const renderedWhileRunning = ctx.widgets
 		.filter((entry) => entry.key === "pi-subflow-progress" && Array.isArray(entry.value))
 		.map((entry) => (entry.value as string[]).join("\n"))
 		.join("\n---\n");
 	assert.match(renderedWhileRunning, /1 task · 1 running · 0 completed · 0 failed · 0 skipped · [1-9]\d*s elapsed/);
-	assert.match(renderedWhileRunning, /⏳ worker-1 · [1-9]\d*s elapsed/);
+	assert.doesNotMatch(renderedWhileRunning, /[⏳⌛]/);
+	assert.doesNotMatch(renderedWhileRunning, /\x1b\[32m[·•●]\x1b\[0m/);
+	assert.match(renderedWhileRunning, /\x1b\[3[2;].*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏].*worker-1 · [1-9]\d*s elapsed/);
 
 	release();
 	await execution;

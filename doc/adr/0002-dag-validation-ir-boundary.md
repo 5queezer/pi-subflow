@@ -18,7 +18,9 @@ Package evaluation used two criteria: keep structural input validation close to 
 
 Introduce a dedicated DAG validation boundary before adding advanced workflow features.
 
-In the near term, create a focused validation/planning module for the existing DAG behavior. This module should own:
+In the near term, create a focused validation/planning module for the existing DAG behavior. Input-format parsing happens before this boundary: for `dagYaml`, `needs` is an authoring alias that is normalized to `dependsOn`, and tasks that set both fields are rejected as ambiguous. Direct task-array DAGs use `dependsOn`. The validation boundary receives normalized dependency metadata and does not choose between aliases.
+
+This module should own:
 
 - task naming normalization
 - verifier fan-in normalization
@@ -30,7 +32,7 @@ In the near term, create a focused validation/planning module for the existing D
 
 The module should expose internal types shaped like a future workflow IR: normalized nodes, dependency edges, diagnostics, and planned stages. `runDag` should call this boundary before execution and should not run any subagent when validation fails. After validation succeeds, `runDag` remains responsible for execution, dependency-output injection for verifier prompts, verifier repair rounds, budget checks, result aggregation, trace/history data, and renderer-visible `dependsOn` metadata.
 
-Keep schema validation separate from DAG validation. TypeBox-style schemas are appropriate at the Pi tool boundary for structural checks such as required strings, enum values, array shapes, and mutually exclusive `needs`/`dependsOn` fields. They are insufficient for this layer because DAG validity depends on cross-node semantics: uniqueness across the whole task set, whether a dependency names another normalized task, verifier fan-in defaults, self-dependencies, cycle paths, deterministic stage planning, and user-actionable graph diagnostics. Encoding those rules in boundary schemas would either be impossible, produce poor errors, or couple schema declarations to execution planning.
+Keep input/schema validation separate from DAG validation. TypeBox-style schemas and the `dagYaml` parser are appropriate at the Pi tool boundary for structural checks such as required strings, enum values, array shapes, and rejecting ambiguous alias combinations before normalization. They are insufficient for this layer because DAG validity depends on cross-node semantics: uniqueness across the whole task set, whether a dependency names another normalized task, verifier fan-in defaults, self-dependencies, cycle paths, deterministic stage planning, and user-actionable graph diagnostics. Encoding those rules in boundary schemas would either be impossible, produce poor errors, or couple schema declarations to execution planning.
 
 Do not add a graph library in the first extraction. Re-evaluate `graphlib` or another graph package before implementing conditional branches, nested workflows, dynamic dependencies, graph visualization, or other features that materially increase graph complexity.
 
