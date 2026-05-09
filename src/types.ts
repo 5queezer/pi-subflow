@@ -1,5 +1,6 @@
 export type TaskStatus = "completed" | "failed" | "skipped" | "running";
 export type FlowMode = "single" | "chain" | "parallel" | "dag";
+export type TaskRole = "worker" | "verifier";
 
 export interface UsageStats {
 	input?: number;
@@ -16,7 +17,7 @@ export interface SubagentTask {
 	task: string;
 	cwd?: string;
 	dependsOn?: string[];
-	role?: "worker" | "verifier";
+	role?: TaskRole;
 	authority?: "read_only" | "internal_mutation" | "external_side_effect";
 	tools?: string[];
 	model?: string;
