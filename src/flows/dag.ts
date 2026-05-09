@@ -131,8 +131,8 @@ async function runLoopTask(
 		const iterationResults = results.slice(iterationStart);
 		const iterationTaskNames = new Set(iterationTasks.map((item) => item.name));
 		const iterationFailed = iterationResults.some((result) => result.agent === "budget" && result.status === "failed") || [...iterationTaskNames].some((name) => {
-			const status = byName.get(name)?.status;
-			return status === "failed" || status === "skipped";
+			const result = byName.get(name);
+			return result?.status === "failed" || (result?.status === "skipped" && skippedBecauseFailedDependency(result, byName));
 		});
 		if (iterationFailed) {
 			return synthesizeLoopTaskResult(task, iteration, task.loop.maxIterations, false, "failed");
@@ -209,6 +209,11 @@ function failedTask(task: SubagentTask, error: string): SubagentResult {
 
 function budgetFailedResult(error: unknown): SubagentResult {
 	return { agent: "budget", task: "budget enforcement", status: "failed", output: "", error: error instanceof Error ? error.message : String(error), usage: {} };
+}
+
+function skippedBecauseFailedDependency(result: SubagentResult, byName: Map<string, SubagentResult>): boolean {
+	const dependency = /^dependency did not complete: (.+)$/.exec(result.error ?? "")?.[1];
+	return dependency ? byName.get(dependency)?.status === "failed" : false;
 }
 
 function synthesizeWorkflowSummary(task: NormalizedDagTask, byName: Map<string, SubagentResult>, trace: TraceEvent[]): SubagentResult {

@@ -243,6 +243,34 @@ test("runDag repeats bounded loops to maxIterations when until stays false", asy
 });
 
 
+
+test("runDag allows condition-skipped tasks inside bounded loop bodies", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => name.endsWith(".researcher") ? JSON.stringify({ runAnalysis: false }) : "analysis",
+	});
+
+	const result = await runDag(
+		{
+			tasks: [{
+				name: "research-loop",
+				loop: {
+					maxIterations: 1,
+					body: {
+						researcher: { agent: "mock", task: "research" },
+						analysis: { agent: "mock", dependsOn: ["researcher"], when: "${researcher.output.runAnalysis} == true", task: "analysis" },
+					},
+				},
+			}],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.equal(result.results.find((item) => item.name === "research-loop.1.analysis")?.status, "skipped");
+	assert.match(result.results.find((item) => item.name === "research-loop")?.output ?? "", /"status":"completed"/);
+	assert.equal(runner.calls.length, 1);
+});
+
 test("runDag fails a bounded loop when a body dependency fails and a downstream body task is skipped", async () => {
 	const runner = new MockSubagentRunner({
 		mock: async ({ name }) => {
