@@ -10,6 +10,9 @@ export async function runDag(input: { tasks: SubagentTask[] }, options: Executio
 	const validation = validateDagTasks(input.tasks);
 	if (validation.issues.length > 0) throw new Error(validation.issues[0].message);
 	const tasks = validation.tasks;
+	if (options.maxTurns !== undefined && options.maxTurns < tasks.length) {
+		throw new Error(`maxTurns ${options.maxTurns} is too low for ${tasks.length} DAG tasks; increase maxTurns or remove the limit`);
+	}
 	const stages = planDagStages(tasks);
 	const byName = new Map<string, SubagentResult>();
 	const results: SubagentResult[] = [];

@@ -20,6 +20,24 @@ test("runChain returns a failed result instead of throwing on budget failure", a
 	assert.match(result.results.at(-1)?.error ?? "", /exceeds maxCost/);
 });
 
+test("runDag rejects maxTurns smaller than the DAG task count before running agents", async () => {
+	const runner = new MockSubagentRunner({ mock: async () => ({ output: "ok", usage: { turns: 1 } }) });
+
+	await assert.rejects(
+		runDag(
+			{
+				tasks: [
+					{ name: "worker", agent: "mock", task: "work" },
+					{ name: "verify", agent: "mock", role: "verifier", task: "verify", dependsOn: ["worker"] },
+				],
+			},
+			{ runner, maxTurns: 1 },
+		),
+		/maxTurns 1 is too low for 2 DAG tasks/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
 test("runDag does not run verifier repair after budget is exceeded", async () => {
 	const calls: string[] = [];
 	const runner = new MockSubagentRunner({
