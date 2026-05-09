@@ -42,6 +42,10 @@ export function validateDagTasks(tasks: SubagentTask[]): DagValidationResult {
 			}
 		}
 	}
+	if (issues.length === 0) {
+		const cycle = findCycle(tasksWithDependsOn);
+		if (cycle) issues.push({ code: "cycle", message: `dependency cycle: ${cycle.join(" -> ")}`, path: cycle });
+	}
 	return {
 		tasks: tasksWithDependsOn,
 		issues,
@@ -53,6 +57,12 @@ export function planDagStages<T extends { name: string; dependsOn?: string[] }>(
 	for (const task of tasks) {
 		if (seen.has(task.name)) throw new Error(`duplicate DAG task name: ${task.name}`);
 		seen.add(task.name);
+	}
+	const taskNames = new Set(tasks.map((task) => task.name));
+	for (const task of tasks) {
+		for (const dependency of task.dependsOn ?? []) {
+			if (!taskNames.has(dependency)) throw new Error(`task ${task.name} depends on missing task ${dependency}`);
+		}
 	}
 	const cycle = findCycle(tasks);
 	if (cycle) throw new Error(`dependency cycle: ${cycle.join(" -> ")}`);

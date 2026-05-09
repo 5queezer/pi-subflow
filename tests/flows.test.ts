@@ -171,10 +171,29 @@ test("runDag rejects dependency cycles with the cycle path", async () => {
 	assert.equal(runner.calls.length, 0);
 });
 
+test("validateDagTasks reports dependency cycles with a structured issue", () => {
+	const result = validateDagTasks([{ ...task("a"), dependsOn: ["b"] }, { ...task("b"), dependsOn: ["a"] }]);
+
+	assert.deepEqual(result.issues, [
+		{
+			code: "cycle",
+			message: "dependency cycle: a -> b -> a",
+			path: ["a", "b", "a"],
+		},
+	]);
+});
+
 test("planDagStages rejects duplicate task names when called directly", () => {
 	assert.throws(
 		() => planDagStages([{ ...task("dup"), dependsOn: [] }, { ...task("dup"), dependsOn: [] }]),
 		/duplicate DAG task name: dup/,
+	);
+});
+
+test("planDagStages rejects missing dependencies when called directly", () => {
+	assert.throws(
+		() => planDagStages([{ ...task("verify"), dependsOn: ["missing"] }]),
+		/task verify depends on missing task missing/,
 	);
 });
 
