@@ -37,6 +37,8 @@ Supporting modules expose Pi-extension-adjacent capabilities without coupling th
 
 PocketFlow primitives may be used internally, but public APIs should remain stable and not leak PocketFlow-specific state unless there is a clear need.
 
+The DAG validation boundary is an internal workflow-IR seam: it should normalize tasks, diagnose invalid graphs, and plan stages before execution without exposing graph library concepts. Re-evaluate whether a graph library is warranted only when advanced features such as conditional branches, nested workflows, or dynamic dependency graphs make the custom validator insufficient.
+
 ## Consequences
 
 Positive:

@@ -8,12 +8,15 @@ PocketFlow-powered prototype for Pi subagent orchestration.
 
 The existing Pi subagent extension mixes tool registration, agent execution, policy checks, DAG execution, validation, and rendering in one extension. This project prototypes a reusable orchestration core that can later be embedded back into a Pi extension.
 
+The DAG path now has a preflight validation boundary so invalid graphs fail before execution. That boundary is intentionally small today, but it is the seam for future conditional branches, nested workflows, or dynamic dependency graphs.
+
 ## Features in this MVP
 
 - Single subagent task execution
 - Sequential chains with `{previous}` handoff
 - Parallel fanout with bounded concurrency
 - DAG execution with dependency stages, duplicate-name rejection, and structured dependency metadata on results
+- DAG preflight validation that rejects invalid graphs before execution
 - Verifier fan-in: verifier tasks without `dependsOn` depend on all non-verifier tasks
 - Dependency output injection for verifiers without parsing graph structure from task text
 - Markdown section / minimal JSON required-field validation
