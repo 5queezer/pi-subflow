@@ -121,14 +121,14 @@ Tradeoffs:
 
 ## References
 
-- AFlow: Automating Agentic Workflow Generation — https://arxiv.org/abs/2410.10762
-- GPTSwarm: Language Agents as Optimizable Graphs — https://proceedings.mlr.press/v235/zhuge24a.html
-- Multi-Agent Design: Optimizing Agents with Better Prompts and Topologies — https://arxiv.org/abs/2502.02533
-- EvoAgentX: An Automated Framework for Evolving Agentic Workflows — https://arxiv.org/abs/2507.03616
-- TextGrad: Automatic Differentiation via Text — https://arxiv.org/abs/2406.07496
-- Optimizing Instructions and Demonstrations for Multi-Stage Language Model Programs / MIPRO — https://arxiv.org/abs/2406.11695
-- Optimizing Agentic Workflows using Meta-tools / AWO — https://arxiv.org/abs/2601.22037
-- Efficient LLM Serving for Agentic Workflows / Helium — https://arxiv.org/abs/2603.16104
-- Automated Design of Agentic Systems / ADAS — https://arxiv.org/abs/2408.08435
-- Darwin Gödel Machine — https://arxiv.org/abs/2505.22954
-- From Static Templates to Dynamic Runtime Graphs: A Survey of Workflow Optimization for LLM Agents — https://arxiv.org/abs/2603.22386
+- AFlow: Automating Agentic Workflow Generation — <https://arxiv.org/abs/2410.10762>
+- GPTSwarm: Language Agents as Optimizable Graphs — <https://proceedings.mlr.press/v235/zhuge24a.html>
+- Multi-Agent Design: Optimizing Agents with Better Prompts and Topologies — <https://arxiv.org/abs/2502.02533>
+- EvoAgentX: An Automated Framework for Evolving Agentic Workflows — <https://arxiv.org/abs/2507.03616>
+- TextGrad: Automatic Differentiation via Text — <https://arxiv.org/abs/2406.07496>
+- Optimizing Instructions and Demonstrations for Multi-Stage Language Model Programs / MIPRO — <https://arxiv.org/abs/2406.11695>
+- Optimizing Agentic Workflows using Meta-tools / AWO — <https://arxiv.org/abs/2601.22037>
+- Efficient LLM Serving for Agentic Workflows / Helium — <https://arxiv.org/abs/2603.16104>
+- Automated Design of Agentic Systems / ADAS — <https://arxiv.org/abs/2408.08435>
+- Darwin Gödel Machine — <https://arxiv.org/abs/2505.22954>
+- From Static Templates to Dynamic Runtime Graphs: A Survey of Workflow Optimization for LLM Agents — <https://arxiv.org/abs/2603.22386>
