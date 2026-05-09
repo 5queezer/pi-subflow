@@ -18,7 +18,6 @@ Use it when work benefits from independent research/review streams, staged hando
 - Runtime tool allowlist checks
 - Workflow slash commands from `.pi/subflow/workflows/*.yaml` and `~/.pi/agent/subflow/workflows/*.yaml`
 - JSONL run history at `.pi/subflow/runs.jsonl`
-- TypeScript API plus Pi extension entry point
 
 ## Quick start
 
@@ -106,38 +105,6 @@ Copy a template into `.pi/subflow/workflows/` to register it as a slash command 
 
 User-level workflow files are also supported under `~/.pi/agent/subflow/workflows/`. Run `/reload` after adding, removing, or renaming workflow files.
 
-## TypeScript API
-
-```ts
-import { MockSubagentRunner, runDag } from "pi-subflow";
-
-const runner = new MockSubagentRunner({
-  scout: async ({ task }) => `found: ${task}`,
-  reviewer: async ({ task }) => `verified:\n${task}`,
-});
-
-const result = await runDag(
-  {
-    tasks: [
-      { name: "frontend", agent: "scout", task: "Inspect frontend auth" },
-      { name: "backend", agent: "scout", task: "Inspect backend auth" },
-      {
-        name: "verify",
-        agent: "reviewer",
-        role: "verifier",
-        dependsOn: ["frontend", "backend"],
-        task: "Synthesize findings",
-      },
-    ],
-  },
-  { runner },
-);
-
-console.log(result.status, result.output);
-```
-
-Primary exports include `runSingle`, `runChain`, `runParallel`, `runDag`, `validateDagTasks`, `planDagStages`, `discoverAgents`, `validateExecutionPolicy`, `MockSubagentRunner`, `PiSdkRunner`, `registerPiSubflowExtension`, and `piSubflowExtension`.
-
 ## Development
 
 ```bash
@@ -154,7 +121,7 @@ npm run build && npm test
 
 ## Documentation
 
-- [GitHub Wiki](https://github.com/5queezer/pi-subflow/wiki) — detailed usage, configuration, policy, architecture, roadmap notes for conditional branches, nested workflows, dynamic dependency graphs, and troubleshooting
+- [GitHub Wiki](https://github.com/5queezer/pi-subflow/wiki) — detailed usage, TypeScript API, configuration, policy, architecture, roadmap notes for conditional branches, nested workflows, dynamic dependency graphs, and troubleshooting
 - [`schemas/subflow-dag.schema.json`](schemas/subflow-dag.schema.json) — YAML schema for workflow templates
 - [`docs/adr/`](docs/adr/) — architecture decision records
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution workflow
