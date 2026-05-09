@@ -121,7 +121,7 @@ npm run build && npm test
 
 ## Documentation
 
-- [GitHub Wiki](https://github.com/5queezer/pi-subflow/wiki) — detailed usage, TypeScript API, configuration, policy, architecture, roadmap notes for conditional branches, nested workflows, dynamic dependency graphs, and troubleshooting. Source pages live in [`doc/wiki/`](doc/wiki/) and are published with `npm run wiki:sync` or `npm run wiki:sync:push`.
+- [GitHub Wiki](https://github.com/5queezer/pi-subflow/wiki) — detailed usage, TypeScript API, configuration, policy, architecture, roadmap notes for conditional branches, nested workflows, dynamic dependency graphs, self-optimizing static DAGs, and troubleshooting. Source pages live in [`doc/wiki/`](doc/wiki/) and are published with `npm run wiki:sync` or `npm run wiki:sync:push`.
 - [`schemas/subflow-dag.schema.json`](schemas/subflow-dag.schema.json) — YAML schema for workflow templates
 - [`doc/adr/`](doc/adr/) — architecture decision records
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution workflow
