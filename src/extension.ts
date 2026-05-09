@@ -260,10 +260,12 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 	const startedAt = Date.now();
 	const running = new Map<string, number>();
 	const results = new Map<string, SubagentResult>();
+	let interval: ReturnType<typeof setInterval> | undefined;
 	const render = () => {
 		const completed = [...results.values()].filter((result) => result.status === "completed").length;
 		const failed = [...results.values()].filter((result) => result.status === "failed").length;
 		const skipped = [...results.values()].filter((result) => result.status === "skipped").length;
+		const runningCount = [...running.keys()].filter((name) => !results.has(name)).length;
 		const status = failed > 0 ? "failed" : completed + skipped >= total && total > 0 ? "completed" : "running";
 		const timeout = timeoutSeconds ? ` · ${timeoutSeconds}s timeout` : "";
 		const elapsed = formatDuration(Date.now() - startedAt);
@@ -273,13 +275,17 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 		];
 		const lines = [
 			`subflow · ${mode} · ${status}`,
-			`${total} task${total === 1 ? "" : "s"} · ${completed} completed · ${failed} failed · ${skipped} skipped · ${elapsed} elapsed${timeout}`,
+			`${total} task${total === 1 ? "" : "s"} · ${runningCount} running · ${completed} completed · ${failed} failed · ${skipped} skipped · ${elapsed} elapsed${timeout}`,
 			...(taskLines.length ? taskLines : ["waiting to start"]),
 		];
 		setWidget.call(ctx.ui, "pi-subflow-progress", lines, { placement: "belowEditor" });
 	};
 	return {
-		start: render,
+		start() {
+			render();
+			interval = setInterval(render, 1000);
+			interval.unref?.();
+		},
 		taskStarted(name) {
 			running.set(name, Date.now());
 			render();
@@ -290,6 +296,7 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 			render();
 		},
 		clear() {
+			if (interval) clearInterval(interval);
 			setWidget.call(ctx.ui, "pi-subflow-progress", undefined);
 		},
 	};
