@@ -1,0 +1,130 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+	MockSubagentRunner,
+	runChain,
+	runDag,
+	runParallel,
+	runSingle,
+} from "../src/index.js";
+import type { RunnerInput, SubagentResult, SubagentRunner } from "../src/index.js";
+
+const task = (name: string, taskText = name) => ({
+	name,
+	agent: "mock",
+	task: taskText,
+});
+
+test("runSingle delegates one task through the runner", async () => {
+	const runner = new MockSubagentRunner({ mock: async ({ task }) => `done:${task}` });
+
+	const result = await runSingle({ agent: "mock", task: "inspect auth" }, { runner });
+
+	assert.equal(result.status, "completed");
+	assert.equal(result.output, "done:inspect auth");
+	assert.equal(runner.calls.length, 1);
+	assert.equal(runner.calls[0].agent, "mock");
+});
+
+test("runChain passes previous output into later {previous} placeholders", async () => {
+	const runner = new MockSubagentRunner({ mock: async ({ task }) => `out(${task})` });
+
+	const result = await runChain(
+		{
+			chain: [
+				{ agent: "mock", task: "first" },
+				{ agent: "mock", task: "second sees {previous}" },
+			],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.equal(result.results[1].task, "second sees out(first)");
+	assert.equal(result.output, "out(second sees out(first))");
+});
+
+test("runParallel fans out tasks and marks partial failure as failed", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ task }) => {
+			if (task === "bad") throw new Error("boom");
+			return `ok:${task}`;
+		},
+	});
+
+	const result = await runParallel(
+		{ tasks: [task("a", "good"), task("b", "bad")] },
+		{ runner, maxConcurrency: 2 },
+	);
+
+	assert.equal(result.status, "failed");
+	assert.equal(result.results[0].status, "completed");
+	assert.equal(result.results[1].status, "failed");
+	assert.match(result.results[1].error ?? "", /boom/);
+});
+
+test("runDag executes dependencies before verifier and injects dependency outputs", async () => {
+	const seen: string[] = [];
+	const runner = new MockSubagentRunner({
+		mock: async ({ task }) => {
+			seen.push(task);
+			return `result:${task}`;
+		},
+	});
+
+	const result = await runDag(
+		{
+			tasks: [
+				task("front", "frontend"),
+				task("back", "backend"),
+				{ name: "verify", agent: "mock", role: "verifier", task: "verify" },
+			],
+		},
+		{ runner, maxConcurrency: 2 },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.deepEqual(seen.slice(0, 2).sort(), ["backend", "frontend"]);
+	assert.match(seen[2], /Dependency outputs/);
+	assert.match(seen[2], /front/);
+	assert.match(seen[2], /result:frontend/);
+});
+
+test("runDag validates expected markdown sections", async () => {
+	const runner = new MockSubagentRunner({ mock: async () => "## Summary\nOnly summary" });
+
+	const result = await runDag(
+		{
+			tasks: [
+				{
+					name: "review",
+					agent: "mock",
+					task: "review",
+					expectedSections: ["Summary", "Evidence"],
+				},
+			],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "failed");
+	assert.match(result.results[0].error ?? "", /missing expected section: Evidence/);
+});
+
+test("runSingle aborts the active runner attempt when a task times out", async () => {
+	let aborted = false;
+	const runner: SubagentRunner = {
+		async run(input: RunnerInput, signal?: AbortSignal): Promise<SubagentResult> {
+			signal?.addEventListener("abort", () => {
+				aborted = true;
+			});
+			return new Promise(() => undefined);
+		},
+	};
+
+	const result = await runSingle({ agent: "mock", task: "slow" }, { runner, timeoutSeconds: 0.01 });
+
+	assert.equal(result.status, "failed");
+	assert.match(result.results[0].error ?? "", /timed out/);
+	assert.equal(aborted, true);
+});

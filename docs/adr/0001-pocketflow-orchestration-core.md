@@ -1,0 +1,59 @@
+# ADR 0001: Use PocketFlow for the subagent orchestration core
+
+## Status
+
+Accepted
+
+## Context
+
+`pi-subflow` is a sibling prototype for recreating the Pi Subagent Extension's workflow layer with clearer boundaries. The existing extension combines Pi tool registration, agent discovery, subprocess spawning, policy checks, validation, tracing, and workflow orchestration in one implementation.
+
+We want a design that keeps Pi-specific integration replaceable while making the orchestration behavior easier to test and evolve.
+
+## Decision
+
+Use `pocketflow` as the workflow/orchestration dependency for `pi-subflow`.
+
+The project will keep execution behind a `SubagentRunner` interface:
+
+- `MockSubagentRunner` supports deterministic tests and local development.
+- `PiSdkRunner` is the preferred real Pi adapter. It creates a fresh SDK `createAgentSession()` with `SessionManager.inMemory()` per subagent run, preserving subagent context isolation without spawning a full `pi` process. When supplied with discovered agent definitions, it includes the selected agent's description, tools, model/thinking hints, and markdown instructions in the subagent task prompt. Explicit model selections are resolved through the Pi model registry and fail fast if unknown, and tests can inject `modelRegistry` / `createAgentSession` seams.
+- `PiSubprocessRunner` remains the adapter boundary for strict process isolation and `pi --mode json -p --no-session` CLI compatibility. It forwards task cwd/model/thinking/tools to the CLI where possible and cleans up abort listeners when runs settle.
+
+Flow modules expose simple TypeScript functions for consumers:
+
+- `runSingle`
+- `runChain`
+- `runParallel`
+- `runDag`
+
+The package also exposes a Pi extension entry point via `registerPiSubflowExtension` and the default extension export. The extension registers a `subflow` tool that dispatches to the orchestration APIs, displays a lightweight progress widget in interactive sessions, returns compact summary cards with task-level success/error lines and DAG structure, and records JSONL history. It also registers an interactive `/subflow-runs` browser that lists recent runs and opens per-run details.
+
+Supporting modules expose Pi-extension-adjacent capabilities without coupling them to tool registration:
+
+- `discoverAgents` loads markdown agent definitions from user and project directories; the extension applies agent-defined `tools`, `model`, and `thinking` to effective runner inputs unless a task explicitly overrides them. Extension-created tasks default to the active Pi cwd unless they set cwd explicitly.
+- `validateExecutionPolicy` enforces project-local confirmation and external-side-effect risk rules before UI side-effect confirmation prompts are shown.
+- `appendRunHistory` records JSONL run summaries.
+- DAG execution supports verifier repair and re-verification rounds.
+
+PocketFlow primitives may be used internally, but public APIs should remain stable and not leak PocketFlow-specific state unless there is a clear need.
+
+## Consequences
+
+Positive:
+
+- Workflow logic remains separated from Pi extension registration and TUI concerns, while a thin extension adapter now makes the core usable from Pi with progress, readable final summaries, and history browsing UI.
+- Single, chain, parallel, DAG, verifier, retry, timeout, validation, budget, cancellation, and trace behavior can be tested without launching Pi subprocesses.
+- SDK-based execution avoids subprocess overhead for normal operation while keeping isolated per-subagent sessions and can still honor named agent instructions through the `agentDefinitions` runner option.
+- The design leaves room for future adaptive routing and verifier-repair loops.
+
+Tradeoffs:
+
+- This is a prototype, not a drop-in replacement for the current Pi extension; the extension adapter now has progress and history browsing UI, but it still does not recreate the original extension's full streaming result renderer and run-management experience.
+- PocketFlow TypeScript is still small and may not cover every desired workflow pattern directly.
+- SDK execution couples the real runner to the `@earendil-works/pi-coding-agent` package API, so version compatibility must be monitored.
+- Some orchestration helpers remain custom because Pi-specific semantics are stricter than generic flow execution.
+
+## Synchronization requirement
+
+When this ADR changes in a way that affects project purpose, architecture, scope, install/test commands, or public APIs, update `README.md` in the same change. When `README.md` changes those same topics, review this ADR and update it if needed.
