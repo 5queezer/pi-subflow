@@ -13,6 +13,15 @@ test("package.json exposes only the public package entrypoint", async () => {
 	});
 });
 
+test("package.json configures Husky pre-commit verification", async () => {
+	const pkg = JSON.parse(await readFile("package.json", "utf8"));
+	const hook = await readFile(".husky/pre-commit", "utf8");
+
+	assert.equal(pkg.scripts.prepare, "husky");
+	assert.match(pkg.devDependencies.husky, /^\^/);
+	assert.match(hook, /npm run build && npm test/);
+});
+
 test("docs describe DAG validation boundary and future workflow IR", async () => {
 	const readme = await readFile("README.md", "utf8");
 	const adr = await readFile("docs/adr/0001-pocketflow-orchestration-core.md", "utf8");

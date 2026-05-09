@@ -319,6 +319,8 @@ Before claiming a change is complete, run:
 npm run build && npm test
 ```
 
+Husky installs from the `prepare` script and runs the same build-plus-test check in `.husky/pre-commit` before commits.
+
 The test suite covers orchestration behavior, DAG validation, policy checks, Pi extension rendering, run history, SDK runner behavior, and LLM-facing prompt guidance.
 
 ## Troubleshooting
