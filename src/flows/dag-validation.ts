@@ -18,12 +18,21 @@ export interface DagValidationResult {
 
 export function validateDagTasks(tasks: SubagentTask[]): DagValidationResult {
 	const named = tasks.map((task, index) => namedTask(task, index));
+	const issues: DagValidationIssue[] = [];
+	const seen = new Set<string>();
+	for (const task of named) {
+		if (seen.has(task.name)) {
+			issues.push({ code: "duplicate_name", message: `duplicate DAG task name: ${task.name}`, task: task.name });
+			continue;
+		}
+		seen.add(task.name);
+	}
 	const nonVerifierNames = named.filter((task) => task.role !== "verifier").map((task) => task.name);
 	return {
 		tasks: named.map((task) => ({
 			...task,
 			dependsOn: task.role === "verifier" && task.dependsOn === undefined ? nonVerifierNames : (task.dependsOn ?? []),
 		})),
-		issues: [],
+		issues,
 	};
 }

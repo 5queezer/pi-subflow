@@ -107,6 +107,18 @@ test("validateDagTasks normalizes verifier fan-in before execution", () => {
 	assert.deepEqual(normalized.issues, []);
 });
 
+test("validateDagTasks reports duplicate task names", () => {
+	const result = validateDagTasks([task("dup", "first"), task("dup", "second")]);
+
+	assert.deepEqual(result.issues, [
+		{
+			code: "duplicate_name",
+			message: "duplicate DAG task name: dup",
+			task: "dup",
+		},
+	]);
+});
+
 test("runDag rejects duplicate task names before execution", async () => {
 	const runner = new MockSubagentRunner({ mock: async ({ task }) => `done:${task}` });
 
