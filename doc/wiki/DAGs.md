@@ -58,7 +58,13 @@ final-verdict:
   task: Synthesize dependency outputs into a prioritized verdict
 ```
 
-The shorthand is only an authoring format at the Pi tool boundary. Internally it becomes the same `tasks` array. It supports an intentionally small subset: task mappings, scalar strings, inline string arrays such as `[read, bash]`, one nested `jsonSchema.required` mapping, and `|`/`>` block strings. YAML anchors, aliases, and advanced tags are not supported.
+The shorthand is only an authoring format at the Pi tool boundary. Internally it becomes the same `tasks` array. It is parsed as YAML, so equivalent YAML forms are accepted, including inline arrays (`needs: [api-review, tests-review]`) and block sequences:
+
+```yaml
+needs:
+  - api-review
+  - tests-review
+```
 
 ### Supported task fields
 

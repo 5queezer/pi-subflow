@@ -4,6 +4,7 @@ import { basename, extname, isAbsolute, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { parseDocument } from "yaml";
 import { discoverAgents, type AgentDefinition, type AgentScope } from "./agents.js";
 import { appendRunHistory } from "./history.js";
 import { validateExecutionPolicy } from "./policy.js";
@@ -423,85 +424,15 @@ function normalizeDagYaml(params: SubflowToolParams): SubflowToolParams {
 }
 
 function parseDagYaml(source: string): SubagentTask[] {
-	const root: Record<string, Record<string, unknown>> = {};
-	let currentName: string | undefined;
-	const lines = source.replace(/\r\n?/g, "\n").split("\n");
-	for (let index = 0; index < lines.length; index += 1) {
-		const rawLine = lines[index];
-		if (!rawLine.trim() || rawLine.trimStart().startsWith("#")) continue;
-		if (rawLine.includes("\t")) throw new Error("invalid dagYaml: tabs are not supported");
-		const indent = countIndent(rawLine);
-		const line = rawLine.trim();
-		const match = /^([^:]+):(.*)$/.exec(line);
-		if (!match) throw new Error(`invalid dagYaml line ${index + 1}: expected key: value`);
-		const key = match[1].trim();
-		const rest = match[2].trim();
-		if (!key) throw new Error(`invalid dagYaml line ${index + 1}: empty key`);
-		if (indent === 0) {
-			if (rest) throw new Error(`dagYaml task ${key} must be a mapping`);
-			if (root[key]) throw new Error(`duplicate DAG task name: ${key}`);
-			currentName = key;
-			root[currentName] = {};
-			continue;
-		}
-		if (!currentName) throw new Error("dagYaml root must be a mapping of task names to task definitions");
-		if (indent !== 2) throw new Error(`invalid dagYaml line ${index + 1}: only two-space task fields are supported`);
-		if (rest === "|" || rest === ">") {
-			const block: string[] = [];
-			while (index + 1 < lines.length) {
-				const nextLine = lines[index + 1];
-				if (nextLine.trim() && countIndent(nextLine) <= indent) break;
-				index += 1;
-				block.push(nextLine);
-			}
-			const normalizedBlock = normalizeYamlBlockScalar(block);
-			root[currentName][key] = rest === ">" ? normalizedBlock.join(" ").trimEnd() : normalizedBlock.join("\n").trimEnd();
-			continue;
-		}
-		if (!rest) {
-			const nested: Record<string, unknown> = {};
-			while (index + 1 < lines.length) {
-				const nextLine = lines[index + 1];
-				if (!nextLine.trim() || nextLine.trimStart().startsWith("#")) {
-					index += 1;
-					continue;
-				}
-				if (countIndent(nextLine) <= indent) break;
-				index += 1;
-				const nestedMatch = /^([^:]+):(.*)$/.exec(nextLine.trim());
-				if (!nestedMatch || countIndent(nextLine) !== 4) throw new Error(`invalid dagYaml line ${index + 1}: only one nested mapping level is supported`);
-				nested[nestedMatch[1].trim()] = parseYamlScalar(nestedMatch[2].trim());
-			}
-			root[currentName][key] = nested;
-			continue;
-		}
-		root[currentName][key] = parseYamlScalar(rest);
+	const document = parseDocument(source, { uniqueKeys: true });
+	if (document.errors.length) {
+		throw new Error(`invalid dagYaml: ${document.errors.map((error) => error.message).join("; ")}`);
 	}
-	if (!Object.keys(root).length) throw new Error("dagYaml root must be a mapping of task names to task definitions");
+	const root = document.toJSON();
+	if (!isRecord(root) || Array.isArray(root) || !Object.keys(root).length) {
+		throw new Error("dagYaml root must be a mapping of task names to task definitions");
+	}
 	return Object.entries(root).map(([name, value]) => parseDagYamlTask(name, value));
-}
-
-function countIndent(line: string): number {
-	return line.length - line.trimStart().length;
-}
-
-function normalizeYamlBlockScalar(lines: string[]): string[] {
-	const contentIndent = Math.min(...lines.filter((line) => line.trim()).map(countIndent));
-	if (!Number.isFinite(contentIndent)) return lines.map(() => "");
-	return lines.map((line) => line.trim() ? line.slice(contentIndent) : "");
-}
-
-function parseYamlScalar(value: string): unknown {
-	if (value.startsWith("[") && value.endsWith("]")) {
-		const inner = value.slice(1, -1).trim();
-		return inner ? inner.split(",").map((item) => unquoteYamlString(item.trim())) : [];
-	}
-	return unquoteYamlString(value);
-}
-
-function unquoteYamlString(value: string): string {
-	if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) return value.slice(1, -1);
-	return value;
 }
 
 function parseDagYamlTask(name: string, value: unknown): SubagentTask {
@@ -514,7 +445,7 @@ function parseDagYamlTask(name: string, value: unknown): SubagentTask {
 	return {
 		name,
 		agent,
-		task,
+		task: task.trimEnd(),
 		cwd: optionalString(value.cwd, `dagYaml task ${name} cwd`),
 		dependsOn,
 		role: optionalRole(value.role, name),
@@ -608,13 +539,13 @@ class ProgressRunner implements SubagentRunner {
 	constructor(private readonly inner: SubagentRunner, private readonly progress: ProgressReporter) {}
 
 	async run(input: import("./types.js").RunnerInput, signal?: AbortSignal): Promise<SubagentResult> {
-		this.progress.taskStarted(input.name);
+		this.progress.taskStarted(input);
 		try {
 			const result = await this.inner.run(input, signal);
 			this.progress.taskFinished(result);
 			return result;
 		} catch (error) {
-			this.progress.taskFinished({ name: input.name, agent: input.agent, task: input.task, status: "failed", output: "", error: error instanceof Error ? error.message : String(error), usage: {} });
+			this.progress.taskFinished({ name: input.name, agent: input.agent, task: input.task, role: input.role, model: input.model, status: "failed", output: "", error: error instanceof Error ? error.message : String(error), usage: {} });
 			throw error;
 		}
 	}
@@ -622,7 +553,7 @@ class ProgressRunner implements SubagentRunner {
 
 interface ProgressReporter {
 	start(): void;
-	taskStarted(name: string): void;
+	taskStarted(task: import("./types.js").RunnerInput): void;
 	taskFinished(result: SubagentResult): void;
 	clear(): void;
 }
@@ -633,7 +564,7 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 	if (typeof ui !== "object" || ui === null || !("setWidget" in ui) || typeof ui.setWidget !== "function") return undefined;
 	const setWidget = ui.setWidget;
 	const startedAt = Date.now();
-	const running = new Map<string, number>();
+	const running = new Map<string, { startedAt: number; task: import("./types.js").RunnerInput }>();
 	const results = new Map<string, SubagentResult>();
 	let interval: ReturnType<typeof setInterval> | undefined;
 	let runningFrame = 0;
@@ -664,8 +595,8 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 		const elapsed = formatDuration(Date.now() - startedAt);
 		const runningIcon = statusIcon("running", runningFrame);
 		const taskLines = [
-			...[...results.values()].map((result) => `${statusIcon(result.status, runningFrame)} ${result.name ?? result.agent}${result.error ? `: ${result.error}` : result.output ? ` → ${firstLine(result.output)}` : ""}`),
-			...[...running.entries()].filter(([name]) => !results.has(name)).map(([name, start]) => `${runningIcon} ${name} · ${formatDuration(Date.now() - start)} elapsed`),
+			...[...results.values()].map((result) => `${statusIcon(result.status, runningFrame)} ${result.name ?? result.agent} ${formatTaskIdentity(result)}${result.error ? `: ${result.error}` : result.output ? ` → ${firstLine(result.output)}` : ""}`),
+			...[...running.entries()].filter(([name]) => !results.has(name)).map(([name, state]) => `${runningIcon} ${name} ${formatTaskIdentity(state.task)} · ${formatDuration(Date.now() - state.startedAt)} elapsed`),
 		];
 		const lines = [
 			`subflow · ${mode} · ${status}`,
@@ -681,8 +612,8 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 			interval = setInterval(render, PROGRESS_FRAME_INTERVAL_MS);
 			interval.unref?.();
 		},
-		taskStarted(name) {
-			running.set(name, Date.now());
+		taskStarted(task) {
+			running.set(task.name, { startedAt: Date.now(), task });
 			render();
 		},
 		taskFinished(result) {
@@ -719,16 +650,8 @@ function truncate(value: string, width: number): string {
 	return truncateToWidth(value, width, "…");
 }
 
-function formatCall(params: SubflowToolParams): string {
-	const mode = inferMode(params);
-	const tasks = tasksForPolicy(params);
-	const names = tasks.map((task, index) => task.name ?? `${task.agent}-${index + 1}`).slice(0, 4);
-	return [
-		`subflow · ${mode} · queued`,
-		`${tasks.length} task${tasks.length === 1 ? "" : "s"}${params.timeoutSeconds ? ` · ${params.timeoutSeconds}s timeout` : ""}`,
-		...names.map((name) => `• ${name}`),
-		...(tasks.length > names.length ? [`… ${tasks.length - names.length} more`] : []),
-	].join("\n");
+function formatCall(_params: SubflowToolParams): string {
+	return "";
 }
 
 function formatResult(result: FlowResult, mode: FlowMode): string {
@@ -772,7 +695,7 @@ function formatDagResult(results: SubagentResult[]): string[] {
 	return lines;
 }
 
-function formatTaskIdentity(result: SubagentResult): string {
+function formatTaskIdentity(result: Pick<SubagentResult, "agent" | "model">): string {
 	return `[${[result.agent, result.model ?? "default"].join(" · ")}]`;
 }
 

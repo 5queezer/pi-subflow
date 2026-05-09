@@ -35,7 +35,7 @@ Then ask Pi to use the `subflow` tool, for example:
 Use subflow to run API, test, and docs reviewers in parallel, then run a verifier that synthesizes the findings.
 ```
 
-For local development, you can symlink the built extension and reload Pi after rebuilding:
+For local development, you can symlink the built extension and reload Pi after rebuilding. The build also links `dist/node_modules` back to the project dependencies so Pi can resolve runtime packages such as `yaml` when the extension directory points at `dist`.
 
 ```bash
 ln -sfn "$PWD/dist" ~/.pi/agent/extensions/subflow
@@ -81,7 +81,7 @@ final-verdict:
   task: Synthesize the findings into a prioritized verdict
 ```
 
-Verifier tasks receive dependency outputs automatically. A verifier with no explicit `dependsOn` depends on all non-verifier tasks.
+Verifier tasks receive dependency outputs automatically. A verifier with no explicit `dependsOn` depends on all non-verifier tasks. `dagYaml` is parsed as YAML, so arrays can be written inline (`needs: [api-review, test-review]`) or as block sequences.
 
 ## Workflow templates
 

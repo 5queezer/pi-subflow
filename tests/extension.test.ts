@@ -84,6 +84,36 @@ final-verdict:
 	assert.match(runner.calls[2].task, /Dependency outputs/);
 });
 
+test("subflow extension accepts YAML block sequences in DAG shorthand", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	const result = await pi.tool.execute("call-1", {
+		dagYaml: `
+api-review:
+  agent: reviewer
+  task: Review API exports
+  tools:
+    - read
+    - bash
+
+final-verdict:
+  agent: reviewer
+  role: verifier
+  needs:
+    - api-review
+  task: Synthesize findings
+`,
+	}, undefined, undefined, fakeCtx(cwd));
+
+	assert.equal(result.isError, false);
+	assert.deepEqual(runner.calls.map((call) => call.name), ["api-review", "final-verdict"]);
+	assert.deepEqual(runner.calls[0].tools, ["read", "bash"]);
+	assert.deepEqual(runner.calls[1].dependsOn, ["api-review"]);
+});
+
 test("subflow extension preserves relative indentation in DAG YAML block scalars", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const runner = new RecordingRunner();
@@ -231,14 +261,14 @@ test("subflow extension rejects external side effects before asking for confirma
 	assert.deepEqual(ctx.confirmations, []);
 });
 
-test("subflow extension shows task-level progress with mode, counts, timeout, and symbols", async () => {
+test("subflow extension shows task-level progress with mode, counts, timeout, model names, and symbols", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const runner = new RecordingRunner();
 	const pi = fakePi();
 	const ctx = fakeCtx(cwd);
 	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
 
-	await pi.tool.execute("call-1", { tasks: [{ name: "one", agent: "worker", task: "one" }, { name: "two", agent: "worker", task: "two" }], timeoutSeconds: 120 }, undefined, undefined, ctx);
+	await pi.tool.execute("call-1", { tasks: [{ name: "one", agent: "worker", task: "one", model: "openrouter/free" }, { name: "two", agent: "worker", task: "two", model: "openai/gpt-mini" }], timeoutSeconds: 120 }, undefined, undefined, ctx);
 
 	const rendered = ctx.widgets
 		.filter((entry) => entry.key === "pi-subflow-progress" && Array.isArray(entry.value))
@@ -247,10 +277,10 @@ test("subflow extension shows task-level progress with mode, counts, timeout, an
 	assert.match(rendered, /subflow · parallel · running/);
 	assert.match(rendered, /2 tasks · \d+ running · 2 completed · 0 failed/);
 	assert.match(rendered, /120s timeout/);
-	assert.match(rendered, /✓ one/);
+	assert.match(rendered, /✓ one \[worker · openrouter\/free\]/);
 	assert.doesNotMatch(rendered, /[⏳⌛]/);
 	assert.doesNotMatch(rendered, /\x1b\[32m[·•●]\x1b\[0m/);
-	assert.match(rendered, /\x1b\[3[2;].*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏].*two|✓ two/);
+	assert.match(rendered, /\x1b\[3[2;].*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏].*two \[worker · openai\/gpt-mini\]|✓ two \[worker · openai\/gpt-mini\]/);
 	assert(ctx.widgets.some((entry) => entry.key === "pi-subflow-progress" && entry.value === undefined));
 });
 
@@ -299,14 +329,14 @@ test("subflow extension refreshes progress while tasks are still running", async
 			await new Promise<void>((resolve) => {
 				release = resolve;
 			});
-			return { name: input.name, agent: input.agent, task: input.task, status: "completed", output: "ok", usage: {} };
+			return { name: input.name, agent: input.agent, task: input.task, model: input.model, status: "completed", output: "ok", usage: {} };
 		},
 	};
 	const pi = fakePi();
 	const ctx = fakeCtx(cwd);
 	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
 
-	const execution = pi.tool.execute("call-1", { agent: "worker", task: "slow", timeoutSeconds: 10 }, undefined, undefined, ctx);
+	const execution = pi.tool.execute("call-1", { agent: "worker", task: "slow", model: "openrouter/free", timeoutSeconds: 10 }, undefined, undefined, ctx);
 	await started.promise;
 	await new Promise((resolve) => setTimeout(resolve, 220));
 	const runningRenders = ctx.widgets.filter((entry) => entry.key === "pi-subflow-progress" && Array.isArray(entry.value)).length;
@@ -320,7 +350,7 @@ test("subflow extension refreshes progress while tasks are still running", async
 	assert.match(renderedWhileRunning, /1 task · 1 running · 0 completed · 0 failed · 0 skipped · [1-9]\d*s elapsed/);
 	assert.doesNotMatch(renderedWhileRunning, /[⏳⌛]/);
 	assert.doesNotMatch(renderedWhileRunning, /\x1b\[32m[·•●]\x1b\[0m/);
-	assert.match(renderedWhileRunning, /\x1b\[3[2;].*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏].*worker-1 · [1-9]\d*s elapsed/);
+	assert.match(renderedWhileRunning, /\x1b\[3[2;].*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏].*worker-1 \[worker · openrouter\/free\] · [1-9]\d*s elapsed/);
 
 	release();
 	await execution;
@@ -382,6 +412,15 @@ test("subflow extension DAG rendering uses structured dependency metadata instea
 	assert.match(result.content[0].text, /note \[worker · worker · default\] ✓/);
 	assert.match(result.content[0].text, /└─ verify \[worker · verifier · default\] ✓/);
 	assert.doesNotMatch(result.content[0].text, /fake \[/);
+});
+
+test("subflow extension keeps the visible Pi tool call card empty because statusline shows progress", () => {
+	const pi = fakePi();
+	registerPiSubflowExtension(pi);
+
+	const rendered = pi.tool.renderCall({ tasks: [{ name: "one", agent: "worker", task: "one" }], timeoutSeconds: 120 }, { expanded: true, isPartial: false }, fakeTheme(), fakeRenderContext()).render(80).join("\n");
+
+	assert.equal(rendered, "");
 });
 
 test("subflow extension provides a custom result renderer for the visible Pi tool card", async () => {

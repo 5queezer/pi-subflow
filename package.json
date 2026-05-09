@@ -15,13 +15,13 @@
 	},
 	"scripts": {
 		"test": "node --import tsx --test tests/*.test.ts",
-		"build": "tsc -p tsconfig.json",
+		"build": "tsc -p tsconfig.json && node scripts/link-dist-deps.mjs",
 		"wiki:sync": "node scripts/sync-wiki.mjs",
 		"wiki:sync:push": "node scripts/sync-wiki.mjs --push",
 		"prepare": "husky"
 	},
 	"keywords": [],
-	"author": "",
+	"author": "Christian Pojoni",
 	"license": "ISC",
 	"type": "module",
 	"types": "dist/index.d.ts",
@@ -29,7 +29,8 @@
 		"@earendil-works/pi-coding-agent": "^0.74.0",
 		"@earendil-works/pi-tui": "^0.74.0",
 		"pocketflow": "^1.0.4",
-		"typebox": "^1.1.38"
+		"typebox": "^1.1.38",
+		"yaml": "^2.8.4"
 	},
 	"devDependencies": {
 		"@types/node": "^25.6.2",
