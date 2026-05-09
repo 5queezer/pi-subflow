@@ -19,7 +19,7 @@ test("subflow extension exposes LLM-facing prompt guidance", () => {
 	const pi = fakePi();
 	registerPiSubflowExtension(pi);
 
-	assert.match(pi.tool.promptSnippet, /single, chain, parallel, DAG, bounded loop, and nested workflow/);
+	assert.match(pi.tool.promptSnippet, /single, chain, parallel, DAG, conditional edges, bounded loops, and nested workflow/);
 	assert(pi.tool.promptGuidelines.some((line: string) => /Use subflow DAG mode/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /role: "verifier"/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /only use "worker" or "verifier"/.test(line)));

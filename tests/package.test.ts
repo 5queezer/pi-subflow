@@ -39,12 +39,12 @@ test("wiki pages are sourced from doc and have sync scripts", async () => {
 	assert.match(syncScript, /--wiki-dir/);
 });
 
-test("doc describes DAG validation boundary and future workflow IR", async () => {
+test("doc describes DAG validation boundary and current expressiveness", async () => {
 	const readme = await readFile("README.md", "utf8");
 	const adr = await readFile("doc/adr/0001-pocketflow-orchestration-core.md", "utf8");
 
 	assert.match(readme, /DAG[\s\S]*preflight[\s\S]*validation/);
-	for (const concept of ["conditional branches", "nested workflows", "dynamic dependency graphs"]) {
+	for (const concept of ["conditional edges", "nested workflows", "bounded loops", "remaining graph roadmap items"]) {
 		assert.match(readme, new RegExp(concept));
 	}
 	assert.match(adr, /DAG[\s\S]*validation[\s\S]*boundary/);

@@ -13,25 +13,28 @@
         "type": "string"
       }
     },
+    "taskCollection": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/task"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/task"
+          }
+        }
+      ]
+    },
     "workflow": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "tasks": {
-          "oneOf": [
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/task"
-              }
-            },
-            {
-              "type": "object",
-              "additionalProperties": {
-                "$ref": "#/$defs/task"
-              }
-            }
-          ]
+          "$ref": "#/$defs/taskCollection"
         },
         "dagYaml": {
           "type": "string"
@@ -41,33 +44,47 @@
         }
       },
       "not": {
-        "required": [
-          "tasks",
-          "dagYaml"
-        ]
+        "required": ["tasks", "dagYaml"]
       },
       "anyOf": [
         {
-          "required": [
-            "tasks"
-          ]
+          "required": ["tasks"]
         },
         {
-          "required": [
-            "dagYaml"
-          ]
+          "required": ["dagYaml"]
         },
         {
-          "required": [
-            "uses"
-          ]
+          "required": ["uses"]
         }
       ]
+    },
+    "loop": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxIterations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "body": {
+          "$ref": "#/$defs/taskCollection"
+        },
+        "until": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": ["maxIterations", "body"]
     },
     "task": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
         "agent": {
           "type": "string",
           "minLength": 1
@@ -79,11 +96,11 @@
         "workflow": {
           "$ref": "#/$defs/workflow"
         },
+        "loop": {
+          "$ref": "#/$defs/loop"
+        },
         "cwd": {
           "type": "string"
-        },
-        "needs": {
-          "$ref": "#/$defs/stringArray"
         },
         "dependsOn": {
           "$ref": "#/$defs/stringArray"
@@ -92,17 +109,10 @@
           "type": "string"
         },
         "role": {
-          "enum": [
-            "worker",
-            "verifier"
-          ]
+          "enum": ["worker", "verifier"]
         },
         "authority": {
-          "enum": [
-            "read_only",
-            "internal_mutation",
-            "external_side_effect"
-          ]
+          "enum": ["read_only", "internal_mutation", "external_side_effect"]
         },
         "tools": {
           "$ref": "#/$defs/stringArray"
@@ -111,14 +121,7 @@
           "type": "string"
         },
         "thinking": {
-          "enum": [
-            "off",
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "xhigh"
-          ]
+          "enum": ["off", "minimal", "low", "medium", "high", "xhigh"]
         },
         "expectedSections": {
           "$ref": "#/$defs/stringArray"
@@ -134,22 +137,17 @@
         }
       },
       "not": {
-        "required": [
-          "needs",
-          "dependsOn"
-        ]
+        "required": ["workflow", "loop"]
       },
       "anyOf": [
         {
-          "required": [
-            "agent",
-            "task"
-          ]
+          "required": ["agent", "task"]
         },
         {
-          "required": [
-            "workflow"
-          ]
+          "required": ["workflow"]
+        },
+        {
+          "required": ["loop"]
         }
       ]
     }

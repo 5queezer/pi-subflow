@@ -1,6 +1,6 @@
 # Roadmap
 
-The current DAG validation boundary is intentionally small and dependency-free. Before adding conditional branches, nested workflows, dynamic dependency graphs, or graph visualization, the project should re-evaluate a graph library such as `graphlib` and treat validation as a workflow IR boundary.
+Conditional DAG edges (`when`), inline nested workflows, and bounded loops are implemented in the DAG path. Remaining graph-roadmap work is about more dynamic dependency graphs, richer diagnostics, and graph visualization. If that scope grows, re-evaluate a graph library such as `graphlib` and treat validation as a workflow IR boundary.
 
 ## Workflow optimization
 
