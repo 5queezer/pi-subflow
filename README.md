@@ -46,6 +46,17 @@ npm run build
 
 ## Workflow modes
 
+```mermaid
+flowchart TD
+  U[User request] --> D{Work shape?}
+  D -->|One bounded task| S[Single]
+  D -->|Linear handoff| C[Chain]
+  D -->|Independent tasks| P[Parallel]
+  D -->|Named dependencies| G[DAG]
+  P --> V[Verifier fan-in]
+  G --> V
+```
+
 | Mode | Use when | Input shape |
 | --- | --- | --- |
 | Single | exactly one focused subagent task is useful | `agent` + `task` |
