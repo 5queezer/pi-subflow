@@ -11,12 +11,27 @@ export interface UsageStats {
 	turns?: number;
 }
 
+export interface WorkflowTask {
+	tasks?: SubagentTask[] | Record<string, SubagentTask>;
+	dagYaml?: string;
+	uses?: string;
+}
+
+export interface LoopTask {
+	maxIterations: number;
+	body: SubagentTask[] | Record<string, SubagentTask>;
+	until?: string;
+}
+
 export interface SubagentTask {
 	name?: string;
-	agent: string;
-	task: string;
+	agent?: string;
+	task?: string;
+	workflow?: WorkflowTask;
+	loop?: LoopTask;
 	cwd?: string;
 	dependsOn?: string[];
+	when?: string;
 	role?: TaskRole;
 	authority?: "read_only" | "internal_mutation" | "external_side_effect";
 	tools?: string[];

@@ -19,11 +19,13 @@ test("subflow extension exposes LLM-facing prompt guidance", () => {
 	const pi = fakePi();
 	registerPiSubflowExtension(pi);
 
-	assert.match(pi.tool.promptSnippet, /single, chain, parallel, and DAG/);
+	assert.match(pi.tool.promptSnippet, /single, chain, parallel, DAG, conditional edges, bounded loops, and nested workflow/);
 	assert(pi.tool.promptGuidelines.some((line: string) => /Use subflow DAG mode/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /role: "verifier"/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /only use "worker" or "verifier"/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /task names must be unique/.test(line)));
+	assert(pi.tool.promptGuidelines.some((line: string) => /workflow\.tasks/.test(line)));
+	assert(pi.tool.promptGuidelines.some((line: string) => /loop\.maxIterations/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /minimum tool subset/.test(line)));
 });
 
@@ -82,6 +84,128 @@ final-verdict:
 	assert.equal(runner.calls[0].task, "Review API exports\nInclude type exports");
 	assert.deepEqual(runner.calls[2].dependsOn, ["api-review", "tests-review"]);
 	assert.match(runner.calls[2].task, /Dependency outputs/);
+});
+
+test("subflow extension runs inline nested workflow tasks", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	const result = await pi.tool.execute("call-1", {
+		tasks: [
+			{
+				name: "review",
+				workflow: {
+					tasks: [
+						{ name: "api", agent: "reviewer", task: "Review API" },
+					],
+				},
+			},
+		],
+	}, undefined, undefined, fakeCtx(cwd));
+
+	assert.equal(result.isError, false);
+	assert.deepEqual(runner.calls.map((call) => call.name), ["review.api"]);
+	assert.match(result.details.results.find((item: any) => item.name === "review")?.output ?? "", /review\.api/);
+});
+
+test("subflow extension parses inline workflow dagYaml mappings", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	const result = await pi.tool.execute("call-1", {
+		dagYaml: `
+review:
+  workflow:
+    dagYaml: |
+      api:
+        agent: reviewer
+        task: Review API
+      docs:
+        agent: reviewer
+        task: Review docs
+publish:
+  agent: reviewer
+  dependsOn: [review]
+  role: verifier
+  task: Publish findings
+`,
+	}, undefined, undefined, fakeCtx(cwd));
+
+	assert.equal(result.isError, false);
+	assert.deepEqual(runner.calls.map((call) => call.name), ["review.api", "review.docs", "publish"]);
+	assert.match(result.details.results.find((item: any) => item.name === "review")?.output ?? "", /review\.api/);
+	assert.deepEqual(runner.calls[2].dependsOn, ["review"]);
+	assert.match(runner.calls[2].task, /Dependency outputs/);
+	assert.match(runner.calls[2].task, /review\.api/);
+	assert.match(runner.calls[2].task, /review\.docs/);
+});
+
+ test("subflow extension parses loop body mappings in dagYaml", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	const result = await pi.tool.execute("call-1", {
+		dagYaml: `
+research-loop:
+  loop:
+    maxIterations: 1
+    body:
+      researcher:
+        agent: reviewer
+        task: Research
+      editor:
+        agent: reviewer
+        dependsOn: [researcher]
+        task: Edit
+`,
+	}, undefined, undefined, fakeCtx(cwd));
+
+	assert.equal(result.isError, false);
+	assert.deepEqual(runner.calls.map((call) => call.name), ["research-loop.1.researcher", "research-loop.1.editor"]);
+	assert.match(result.details.results.find((item: any) => item.name === "research-loop")?.output ?? "", /"iterationsCompleted":1/);
+});
+
+test("subflow extension parses DAG YAML when conditions into task objects", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const calls: RunnerInput[] = [];
+	const runner: SubagentRunner = {
+		async run(input: RunnerInput): Promise<SubagentResult> {
+			calls.push({ ...input });
+			return {
+				name: input.name,
+				agent: input.agent,
+				task: input.task,
+				status: "completed",
+				output: input.name === "triage" ? JSON.stringify({ score: 0.9 }) : "ran",
+				usage: {},
+			};
+		},
+	};
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	await pi.tool.execute("call-1", {
+		dagYaml: `
+triage:
+  agent: reviewer
+  task: triage
+  when: "true"
+
+analyze:
+  agent: reviewer
+  dependsOn: [triage]
+  when: "\${triage.output.score} > 0.7"
+  task: analyze
+`,
+	}, undefined, undefined, fakeCtx(cwd));
+
+	assert.equal(calls[1].when, "${triage.output.score} > 0.7");
 });
 
 test("subflow extension accepts YAML block sequences in DAG shorthand", async () => {
@@ -206,6 +330,23 @@ test("subflow extension applies agent model, thinking, tools, and cwd as enforce
 	assert.equal(runner.calls[0].cwd, cwd);
 });
 
+test("subflow extension applies agent defaults to nested workflow task maps", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const userDir = join(cwd, "agents");
+	await writeFile(join(await mkdirp(userDir), "worker.md"), "---\nname: worker\ndescription: Worker agent\ntools: [read, bash]\nmodel: openai/gpt-5-mini\nthinking: low\n---\nUse tools carefully.\n");
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { userDir, runnerFactory: () => runner });
+
+	await pi.tool.execute("call-1", { tasks: [{ name: "review", workflow: { tasks: { api: { agent: "worker", task: "Inspect auth" } } } }] }, undefined, undefined, fakeCtx(cwd));
+
+	assert.equal(runner.calls[0].name, "review.api");
+	assert.deepEqual(runner.calls[0].tools, ["read", "bash"]);
+	assert.equal(runner.calls[0].model, "openai/gpt-5-mini");
+	assert.equal(runner.calls[0].thinking, "low");
+	assert.equal(runner.calls[0].cwd, cwd);
+});
+
 test("subflow extension lets explicit task model, thinking, tools, and cwd override agent defaults", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const userDir = join(cwd, "agents");
@@ -230,6 +371,25 @@ test("subflow extension rejects tools outside the runtime allowlist", async () =
 
 	await assert.rejects(
 		() => pi.tool.execute("call-1", { agent: "worker", task: "Inspect auth", tools: ["read", "shell-root"] }, undefined, undefined, fakeCtx(cwd)),
+		/unknown or unavailable tool: shell-root/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
+test("subflow extension rejects tools outside the runtime allowlist inside nested workflows", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	await assert.rejects(
+		() => pi.tool.execute(
+			"call-1",
+			{ tasks: [{ name: "review", workflow: { tasks: [{ name: "api", agent: "worker", task: "Inspect auth", tools: ["shell-root"] }] } }] },
+			undefined,
+			undefined,
+			fakeCtx(cwd),
+		),
 		/unknown or unavailable tool: shell-root/,
 	);
 	assert.equal(runner.calls.length, 0);

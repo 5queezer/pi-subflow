@@ -6,13 +6,13 @@ Accepted
 
 ## Context
 
-`pi-subflow` currently supports single, chain, parallel, and DAG execution. The DAG path already has several semantic rules: task names must be unique, verifier tasks without explicit dependencies fan in from all non-verifier tasks, dependencies determine execution stages, failed dependencies skip downstream tasks, and results carry structured `dependsOn` metadata for rendering and history.
+`pi-subflow` currently supports single, chain, parallel, DAG, conditional edges, bounded loops, and inline nested workflow execution. The DAG path already has several semantic rules: task names must be unique, verifier tasks without explicit dependencies fan in from all non-verifier tasks, dependencies determine execution stages, failed dependencies skip downstream tasks, bounded loops repeat namespaced subgraphs with early-stop conditions, and results carry structured `dependsOn` metadata for rendering and history.
 
-The current DAG implementation is still intentionally small, but future project goals include conditional branches, nested workflows, and dynamic dependency graphs. Those features will make validation more important than the current topological-stage helper: callers will need clear preflight diagnostics before models spend tokens or tools run, and the orchestration layer will need a stable internal representation that can evolve beyond simple static DAGs.
+The current DAG implementation is still intentionally small, but future project goals include richer dynamic dependency graphs and graph visualization. Conditional edges, nested workflows, and bounded loops are already supported with namespaced child tasks and synthetic summaries. Those features make validation more important than the current topological-stage helper: callers need clear preflight diagnostics before models spend tokens or tools run, and the orchestration layer needs a stable internal representation that can evolve beyond simple static DAGs.
 
 ADR 0001 establishes the public `runDag` contract and extension behavior: DAG execution should validate task names and dependencies, execute deterministic dependency stages, skip downstream tasks after dependency failures, preserve structured `dependsOn` metadata for rendering/history, and keep PocketFlow or workflow-IR internals out of public APIs. The validation/planning boundary described here sits inside that contract. It prepares normalized tasks and planned stages for `runDag`; it does not replace `runDag`, change history or rendering formats, or expose planner internals to extension callers.
 
-Package evaluation used two criteria: keep structural input validation close to the Pi tool schema, and avoid introducing a graph dependency until graph behavior exceeds simple static DAG validation. The outcome is to keep TypeBox-style schemas at the Pi extension boundary for shape and enum checks, and to keep custom dependency validation/planning for now. General graph packages such as `graphlib`, `dependency-graph`, or `topo-sort` remain candidates only if conditional branches, nested workflows, dynamic dependencies, graph visualization, or more complex graph diagnostics make custom logic a liability.
+Package evaluation used two criteria: keep structural input validation close to the Pi tool schema, and avoid introducing a graph dependency until graph behavior exceeds simple static DAG validation. The outcome is to keep TypeBox-style schemas at the Pi extension boundary for shape and enum checks, and to keep custom dependency validation/planning for now. General graph packages such as `graphlib`, `dependency-graph`, or `topo-sort` remain candidates only if conditional branches, nested workflows, bounded loops, dynamic dependencies, graph visualization, or more complex graph diagnostics make custom logic a liability.
 
 ## Decision
 
@@ -27,6 +27,7 @@ This module should own:
 - duplicate-name detection
 - missing-dependency diagnostics
 - self-dependency diagnostics
+- loop-shape validation
 - cycle diagnostics with a human-readable path
 - deterministic execution-stage planning
 
@@ -34,7 +35,7 @@ The module should expose internal types shaped like a future workflow IR: normal
 
 Keep input/schema validation separate from DAG validation. TypeBox-style schemas and the `dagYaml` parser are appropriate at the Pi tool boundary for structural checks such as required strings, enum values, array shapes, and rejecting ambiguous alias combinations before normalization. They are insufficient for this layer because DAG validity depends on cross-node semantics: uniqueness across the whole task set, whether a dependency names another normalized task, verifier fan-in defaults, self-dependencies, cycle paths, deterministic stage planning, and user-actionable graph diagnostics. Encoding those rules in boundary schemas would either be impossible, produce poor errors, or couple schema declarations to execution planning.
 
-Do not add a graph library in the first extraction. Re-evaluate `graphlib` or another graph package before implementing conditional branches, nested workflows, dynamic dependencies, graph visualization, or other features that materially increase graph complexity.
+Do not add a graph library in the first extraction. Re-evaluate `graphlib` or another graph package before implementing more dynamic dependencies, graph visualization, or other features that materially increase graph complexity.
 
 ## Consequences
 
@@ -42,7 +43,7 @@ Positive:
 
 - Invalid DAGs fail before execution with precise, user-actionable errors.
 - Validation rules live in one place instead of drifting across schema validation, DAG execution, rendering, and docs.
-- The codebase gets a stable seam for future conditional, nested, or dynamic workflow behavior.
+- The codebase gets a stable seam for future dynamic workflow behavior.
 - The current implementation remains lightweight while DAG semantics are simple.
 
 Tradeoffs:

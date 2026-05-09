@@ -139,6 +139,35 @@ test("PiSdkRunner passes resolved model, tools, thinking, and cwd into SDK sessi
 	assert.equal(options.model, resolvedModel);
 });
 
+test("PiSdkRunner prefers openai-codex when resolving ambiguous bare model IDs", async () => {
+	const azureModel = { provider: "azure-openai-responses", id: "gpt-5.3-codex-spark" } as const;
+	const codexModel = { provider: "openai-codex", id: "gpt-5.3-codex-spark", name: "GPT-5.3 Codex Spark" } as const;
+	let resolved: unknown;
+	const runner = new PiSdkRunner({
+		modelRegistry: {
+			find: () => undefined,
+			getAll: () => [azureModel, codexModel],
+		},
+		createAgentSession: async (value) => {
+			resolved = value.model;
+			return {
+				session: {
+					messages: [],
+					subscribe: () => () => {},
+					prompt: async () => {},
+					dispose: () => {},
+				},
+			};
+		},
+		resultExtractor: (input) => completed(input, "done"),
+	});
+
+	await runner.run({ name: "a", agent: "worker", task: "one", model: "gpt-5.3-codex-spark" });
+
+	assert.equal((resolved as any)?.provider, "openai-codex");
+	assert.equal((resolved as any)?.id, "gpt-5.3-codex-spark");
+});
+
 test("PiSdkRunner sums usage across assistant messages", async () => {
 	const runner = new PiSdkRunner({
 		createSession: async () => ({

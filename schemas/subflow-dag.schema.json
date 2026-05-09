@@ -1,6 +1,4 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/5queezer/pi-subflow/schemas/subflow-dag.schema.json",
   "title": "pi-subflow DAG YAML",
   "description": "YAML language-server schema for pi-subflow dagYaml workflow templates. Runtime validation still checks graph semantics such as missing dependencies, self-dependencies, duplicate names, and cycles.",
   "type": "object",
@@ -11,35 +9,186 @@
   "$defs": {
     "stringArray": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
+    },
+    "taskCollection": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/task"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/task"
+          }
+        }
+      ]
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tasks": {
+          "$ref": "#/$defs/taskCollection"
+        },
+        "dagYaml": {
+          "type": "string"
+        },
+        "uses": {
+          "type": "string"
+        }
+      },
+      "not": {
+        "required": [
+          "tasks",
+          "dagYaml"
+        ]
+      },
+      "anyOf": [
+        {
+          "required": [
+            "tasks"
+          ]
+        },
+        {
+          "required": [
+            "dagYaml"
+          ]
+        },
+        {
+          "required": [
+            "uses"
+          ]
+        }
+      ]
+    },
+    "loop": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxIterations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "body": {
+          "$ref": "#/$defs/taskCollection"
+        },
+        "until": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "maxIterations",
+        "body"
+      ]
     },
     "task": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["agent", "task"],
       "properties": {
-        "agent": { "type": "string", "minLength": 1 },
-        "task": { "type": "string", "minLength": 1 },
-        "cwd": { "type": "string" },
-        "needs": { "$ref": "#/$defs/stringArray" },
-        "dependsOn": { "$ref": "#/$defs/stringArray" },
-        "role": { "enum": ["worker", "verifier"] },
-        "authority": { "enum": ["read_only", "internal_mutation", "external_side_effect"] },
-        "tools": { "$ref": "#/$defs/stringArray" },
-        "model": { "type": "string" },
-        "thinking": { "enum": ["off", "minimal", "low", "medium", "high", "xhigh"] },
-        "expectedSections": { "$ref": "#/$defs/stringArray" },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "task": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workflow": {
+          "$ref": "#/$defs/workflow"
+        },
+        "loop": {
+          "$ref": "#/$defs/loop"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "needs": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "dependsOn": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "when": {
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "worker",
+            "verifier"
+          ]
+        },
+        "authority": {
+          "enum": [
+            "read_only",
+            "internal_mutation",
+            "external_side_effect"
+          ]
+        },
+        "tools": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "model": {
+          "type": "string"
+        },
+        "thinking": {
+          "enum": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        "expectedSections": {
+          "$ref": "#/$defs/stringArray"
+        },
         "jsonSchema": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "required": { "$ref": "#/$defs/stringArray" }
+            "required": {
+              "$ref": "#/$defs/stringArray"
+            }
           }
         }
       },
       "not": {
-        "required": ["needs", "dependsOn"]
-      }
+        "required": [
+          "needs",
+          "dependsOn"
+        ]
+      },
+      "anyOf": [
+        {
+          "required": [
+            "agent",
+            "task"
+          ]
+        },
+        {
+          "required": [
+            "workflow"
+          ]
+        },
+        {
+          "required": [
+            "loop"
+          ]
+        }
+      ]
     }
   }
 }
