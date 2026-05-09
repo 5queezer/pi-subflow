@@ -18,6 +18,7 @@ Use it when work benefits from independent research/review streams, staged hando
 - Project/user agent discovery with policy gates
 - Runtime tool allowlist checks
 - Workflow slash commands from `.pi/subflow/workflows/*.{yaml,yml}` and `~/.pi/agent/subflow/workflows/*.{yaml,yml}`
+- Dry-run workflow optimization with `subflow_optimize`, eval sets, objective scoring, and candidate comparison
 - JSONL run history at `.pi/subflow/runs.jsonl`
 
 ## Quick start
@@ -123,8 +124,10 @@ npm run build && npm test
 
 ## Documentation
 
-- [GitHub Wiki](https://github.com/5queezer/pi-subflow/wiki) — detailed usage, TypeScript API, configuration, policy, architecture, current DAG expressiveness (conditional edges, nested workflows, bounded loops), remaining graph roadmap items, self-optimizing static DAGs, and troubleshooting. Source pages live in [`doc/wiki/`](doc/wiki/) and are published with `npm run wiki:sync` or `npm run wiki:sync:push`.
+- [GitHub Wiki](https://github.com/5queezer/pi-subflow/wiki) — detailed usage, TypeScript API, configuration, policy, architecture, current DAG expressiveness (conditional edges, nested workflows, bounded loops), remaining graph roadmap items, workflow optimization, self-optimizing static DAGs, and troubleshooting. Source pages live in [`doc/wiki/`](doc/wiki/) and are published with `npm run wiki:sync` or `npm run wiki:sync:push`.
+- [`doc/wiki/Workflow-optimization.md`](doc/wiki/Workflow-optimization.md) — dry-run optimizer, canonical eval sets, and safety model
 - [`schemas/subflow-dag.schema.json`](schemas/subflow-dag.schema.json) — YAML schema for workflow templates
+- [`schemas/subflow-eval.schema.json`](schemas/subflow-eval.schema.json) — YAML schema for optimizer eval sets
 - [`doc/adr/`](doc/adr/) — architecture decision records
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution workflow
 

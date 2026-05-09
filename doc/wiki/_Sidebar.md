@@ -10,6 +10,7 @@
 - [[Architecture|Architecture]]
 - [[Development|Development]]
 - [[Troubleshooting|Troubleshooting]]
+- [[Workflow optimization|Workflow-optimization]]
 - [[Roadmap|Roadmap]]
 - [[Architecture decision records|Architecture-decision-records]]
 - [[License|License]]

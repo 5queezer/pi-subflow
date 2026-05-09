@@ -95,6 +95,12 @@ The optimizer must preserve the DAG validation boundary from ADR 0002. Candidate
 - Do not choose candidates based only on an LLM preference judgment. Candidate selection must be grounded in repeatable evaluation results.
 - Do not bypass existing policy gates, tool allowlists, budget checks, or DAG validation when evaluating generated candidates.
 
+## MVP interface
+
+`subflow_optimize` is the first concrete tool surface for this ADR. The dry-run optimizer should accept exactly one of `workflowPath` or `dagYaml`, exactly one of `evalSet.path` or `evalSet.inline`, and optional `candidateDagYamls`, `maxCandidateRuns`, `maxCost`, `maxConcurrency`, and `timeoutSeconds`.
+
+Canonical eval sets live under `.pi/subflow/evals/*.yaml`. The tool should write report artifacts under `.pi/subflow/optimizer-reports/` and must not mutate workflow files. Any future file-replacement behavior belongs in a separate `subflow_optimize_apply` tool so the apply step is explicit and opt-in.
+
 ## Consequences
 
 Positive:
@@ -115,6 +121,7 @@ Tradeoffs:
 
 - Add trace fields needed for optimization: node output summaries, token/cost estimates, latency, retry counts, failures, model/thinking/tool configuration, and dependency metadata.
 - Define an eval-set format and scorer interface for target DAGs.
+- Expose the MVP as a dry-run-only Pi tool named `subflow_optimize`; keep mutation as a future separate apply operation that consumes a saved report.
 - Add a dry-run optimizer command that produces candidate DAG YAML and a scored comparison report without automatically replacing workflow files.
 - Consider an AWO-inspired pass that detects repeated tool-call sequences and suggests deterministic composite tools.
 - Keep README, wiki roadmap, and this ADR synchronized when this direction changes scope, public API, or implementation behavior.
