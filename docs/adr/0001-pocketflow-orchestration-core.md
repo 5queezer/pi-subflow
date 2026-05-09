@@ -26,16 +26,46 @@ Flow modules expose simple TypeScript functions for consumers:
 - `runParallel`
 - `runDag`
 
-The package also exposes a Pi extension entry point via `registerPiSubflowExtension` and the default extension export. The extension registers a `subflow` tool that dispatches to the orchestration APIs, accepts a `dagYaml` YAML shorthand for concise LLM-authored DAGs and normalizes it to the existing task array shape, displays a live progress widget in interactive sessions, owns its visible tool card rendering via `renderShell: "self"`, returns compact summary cards with task-level success/error lines, agent/model metadata, and labeled DAG graph structure derived from structured dependency metadata, and records JSONL history. At session start it also scans repo-local `.pi/subflow/workflows/*.yaml` and `.pi/subflow/workflows/*.yml` files with safe command names, lists them in a dedicated `[Workflows]` startup section, and registers slash commands such as `/code-review`; those commands inject text after the slash command into each task as workflow command arguments, execute the DAG immediately through the same policy, agent discovery, progress, and history path as the tool, show a completion notification, open the final subflow summary in an editor, use both user and project-local agents, and reject task `cwd` values that are absolute or contain `..`. An interactive run-history browser remains planned, but `/subflow-runs` is not registered until its TUI behavior is stable across Pi terminals.
+The package also exposes a Pi extension entry point via `registerPiSubflowExtension` and the default extension export. The extension registers a `subflow` tool that dispatches to the orchestration APIs, accepts a `dagYaml` YAML shorthand for concise LLM-authored DAGs and normalizes it to the existing task array shape, displays a live progress widget in interactive sessions, owns its visible tool card rendering via `renderShell: "self"`, returns compact summary cards with task-level success/error lines, agent/model metadata, and labeled DAG graph structure derived from structured dependency metadata, and records JSONL history.
+
+Repo-local workflow files are a Pi extension feature, not a core orchestration API. The extension scans `.pi/subflow/workflows/*.yaml` and `.pi/subflow/workflows/*.yml` files whose basenames are safe command names, registers slash commands such as `/code-review`, and generates marked prompt-template stubs under `.pi/subflow/workflow-prompts/`. Those stubs are returned from `resources_discover.promptPaths`; in Pi, that prompt-path discovery is the mechanism that makes generated workflow entries visible in the native `[Prompts]` startup section and slash-command autocomplete. Slash-command registration is still performed during `session_start`, so prompt stubs advertise the commands while the registered command handler executes them. Prompt-stub cleanup is intentionally limited to files carrying the generated marker so manual prompt files are not removed.
+
+Workflow command arguments are prompt content. Text after the slash command is trimmed, replaced with `(none provided)` when empty, and prepended to every workflow task body as:
+
+```text
+Workflow command arguments:
+<arguments>
+
+Workflow task:
+<original task>
+```
+
+The arguments are not task metadata, are not interpolated into YAML, are not shell-expanded, and are not separately rendered as user-visible output except insofar as they appear in subagent prompts or downstream subagent output. Workflow commands execute the DAG immediately through the same policy, agent discovery, progress, and history path as the tool, show a completion notification, add a concise summary plus final output to chat history, use both user and project-local agents, and reject task `cwd` values that are absolute or contain `..`. An interactive run-history browser remains planned, but `/subflow-runs` is not registered until its TUI behavior is stable across Pi terminals.
+
+Stable public API guarantees:
+
+- The exported orchestration functions remain `runSingle`, `runChain`, `runParallel`, and `runDag`, with execution hidden behind `SubagentRunner`.
+- The Pi extension entry points remain `registerPiSubflowExtension` and the default extension export.
+- The `subflow` tool supports single, chain, parallel, and DAG modes, including `dagYaml` normalization and `needs` as an alias for `dependsOn`.
+- DAG task names are validated as unique, dependency failures skip downstream tasks, verifier fan-in is part of DAG semantics, and task results carry structured `dependsOn` metadata so renderers and history views do not infer graph edges from injected prompt text.
+- Workflow command arguments are prepended to task prompt content using the format above.
+- PocketFlow primitives and future workflow-IR internals are non-goals for the public API; they may be used internally, but callers should not depend on PocketFlow-specific or graph-library-specific state.
+
+Current runner and extension implementation details, intentionally not stronger API guarantees:
+
+- `PiSdkRunner` currently creates a fresh SDK session with in-memory session state per subagent run and passes explicit task `tools` as the active SDK tool subset.
+- Agent definitions currently contribute description, markdown instructions, and default `tools`, `model`, and `thinking` hints unless task fields override them.
+- Explicit tool names are currently checked against a runtime allowlist before SDK session creation.
+- Extension-created tasks currently default to the active Pi cwd unless they set `cwd` explicitly.
+- Retry handling, including the current rule that mutating and external-side-effect tasks are not retried, is implementation policy rather than a stable core API shape.
+- `dependsOn` currently drives deterministic static DAG stage planning; richer workflow forms should pass through the validation boundary rather than leaking planner internals.
 
 Supporting modules expose Pi-extension-adjacent capabilities without coupling them to tool registration:
 
-- `discoverAgents` loads markdown agent definitions from user and project directories; the extension applies agent-defined `tools`, `model`, and `thinking` to effective runner inputs unless a task explicitly overrides them. Explicit tools are checked against a runtime allowlist before SDK session creation. Extension-created tasks default to the active Pi cwd unless they set cwd explicitly.
-- `validateExecutionPolicy` enforces project-local confirmation and external-side-effect risk rules before UI side-effect confirmation prompts are shown. Mutating and external-side-effect tasks are not retried, even when retry budgets are configured.
+- `discoverAgents` loads markdown agent definitions from user and project directories.
+- `validateExecutionPolicy` enforces project-local confirmation and external-side-effect risk rules before UI side-effect confirmation prompts are shown.
 - `appendRunHistory` records JSONL run summaries.
-- DAG execution supports verifier repair and re-verification rounds. DAG task names must be unique, and task results carry structured `dependsOn` metadata so renderers and history views do not infer graph edges from injected prompt text.
-
-PocketFlow primitives may be used internally, but public APIs should remain stable and not leak PocketFlow-specific state unless there is a clear need.
+- DAG execution supports verifier repair and re-verification rounds.
 
 The DAG validation boundary is an internal workflow-IR seam: it should normalize tasks, diagnose invalid graphs, and plan stages before execution without exposing graph library concepts. Re-evaluate whether a graph library is warranted only when advanced features such as conditional branches, nested workflows, or dynamic dependency graphs make the custom validator insufficient.
 
