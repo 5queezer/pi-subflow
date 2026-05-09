@@ -47,3 +47,57 @@ export function validateDagTasks(tasks: SubagentTask[]): DagValidationResult {
 		issues,
 	};
 }
+
+export function planDagStages<T extends { name: string; dependsOn?: string[] }>(tasks: T[]): T[][] {
+	const seen = new Set<string>();
+	for (const task of tasks) {
+		if (seen.has(task.name)) throw new Error(`duplicate DAG task name: ${task.name}`);
+		seen.add(task.name);
+	}
+	const cycle = findCycle(tasks);
+	if (cycle) throw new Error(`dependency cycle: ${cycle.join(" -> ")}`);
+	const remaining = new Map(tasks.map((task) => [task.name, task]));
+	const completed = new Set<string>();
+	const stages: T[][] = [];
+	while (remaining.size > 0) {
+		const ready = [...remaining.values()].filter((task) => (task.dependsOn ?? []).every((dep) => completed.has(dep)));
+		if (ready.length === 0) throw new Error(`dependency cycle: ${[...remaining.keys()].join(" -> ")}`);
+		stages.push(ready);
+		for (const task of ready) {
+			remaining.delete(task.name);
+			completed.add(task.name);
+		}
+	}
+	return stages;
+}
+
+function findCycle<T extends { name: string; dependsOn?: string[] }>(tasks: T[]): string[] | undefined {
+	const byName = new Map(tasks.map((task) => [task.name, task]));
+	const visiting = new Set<string>();
+	const visited = new Set<string>();
+	const path: string[] = [];
+
+	const visit = (name: string): string[] | undefined => {
+		if (visiting.has(name)) {
+			const start = path.indexOf(name);
+			return [...path.slice(start), name];
+		}
+		if (visited.has(name)) return;
+		const task = byName.get(name);
+		if (!task) return;
+		visiting.add(name);
+		path.push(name);
+		for (const dep of task.dependsOn ?? []) {
+			const cycle = visit(dep);
+			if (cycle) return cycle;
+		}
+		path.pop();
+		visiting.delete(name);
+		visited.add(name);
+	};
+
+	for (const task of tasks) {
+		const cycle = visit(task.name);
+		if (cycle) return cycle;
+	}
+}

@@ -7,7 +7,7 @@ import {
 	runParallel,
 	runSingle,
 } from "../src/index.js";
-import { validateDagTasks } from "../src/flows/dag-validation.js";
+import { planDagStages, validateDagTasks } from "../src/flows/dag-validation.js";
 import type { RunnerInput, SubagentResult, SubagentRunner } from "../src/index.js";
 
 const task = (name: string, taskText = name) => ({
@@ -156,6 +156,38 @@ test("runDag rejects self-dependencies with the exact task name", async () => {
 		/task loop cannot depend on itself/,
 	);
 	assert.equal(runner.calls.length, 0);
+});
+
+test("runDag rejects dependency cycles with the cycle path", async () => {
+	const runner = new MockSubagentRunner({ mock: async ({ task }) => `done:${task}` });
+
+	await assert.rejects(
+		runDag(
+			{ tasks: [{ ...task("a"), dependsOn: ["b"] }, { ...task("b"), dependsOn: ["a"] }] },
+			{ runner },
+		),
+		/dependency cycle: a -> b -> a/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
+test("planDagStages rejects duplicate task names when called directly", () => {
+	assert.throws(
+		() => planDagStages([{ ...task("dup"), dependsOn: [] }, { ...task("dup"), dependsOn: [] }]),
+		/duplicate DAG task name: dup/,
+	);
+});
+
+test("planDagStages returns dependency stages for validated tasks", () => {
+	const validation = validateDagTasks([
+		task("front"),
+		task("back"),
+		{ ...task("verify"), dependsOn: ["front", "back"] },
+	]);
+
+	const stages = planDagStages(validation.tasks);
+
+	assert.deepEqual(stages.map((stage) => stage.map((item) => item.name).sort()), [["back", "front"], ["verify"]]);
 });
 
 test("runDag validates expected markdown sections", async () => {
