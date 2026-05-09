@@ -76,6 +76,7 @@ export interface FlowResult {
 	output: string;
 	results: SubagentResult[];
 	trace: TraceEvent[];
+	usage?: UsageStats;
 }
 
 export interface TraceEvent {

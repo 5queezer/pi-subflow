@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadEvalSet } from "../src/optimizer/eval-set.js";
+import { computeGraphMetrics } from "../src/optimizer/graph-metrics.js";
+import { computeUtility, summarizeRuns } from "../src/optimizer/objective.js";
 
 async function tmpProject(): Promise<string> {
 	return mkdtemp(join(tmpdir(), "pi-subflow-optimizer-"));
@@ -196,4 +198,41 @@ test("loadEvalSet rejects symlink escapes outside the project", async () => {
 	}
 
 	await assert.rejects(() => loadEvalSet({ cwd, evalSet: { path: ".pi/subflow/evals/outside.yaml" } }), /must stay inside the project/);
+});
+
+test("computeGraphMetrics counts conditionals, nested workflows, loops, edges, and summary nodes", () => {
+	const metrics = computeGraphMetrics([
+		{ name: "gate", agent: "mock", task: "gate" },
+		{ name: "conditional", agent: "mock", task: "conditional", dependsOn: ["gate"], when: "${gate.output.ok} == true" },
+		{
+			name: "nested",
+			dependsOn: ["conditional"],
+			workflow: { tasks: [{ name: "child", agent: "mock", task: "child" }] },
+		},
+		{
+			name: "loop",
+			loop: { maxIterations: 3, body: { editor: { agent: "mock", task: "edit" } }, until: "${editor.output.done} == true" },
+		},
+	]);
+
+	assert.equal(metrics.conditionals, 1);
+	assert.equal(metrics.nestedWorkflowDepth, 1);
+	assert.equal(metrics.loopExpansionBound, 3);
+	assert.equal(metrics.syntheticSummaryNodes, 2);
+	assert(metrics.runnableTasks >= 4);
+	assert(metrics.complexity > metrics.runnableTasks);
+});
+
+test("computeUtility applies objective weights to aggregate metrics", () => {
+	const metrics = summarizeRuns([
+		{ caseName: "one", wallTimeMs: 1000, result: { status: "completed", output: "ok", results: [], trace: [], usage: { cost: 0.25 } } },
+		{ caseName: "two", wallTimeMs: 3000, result: { status: "failed", output: "", results: [], trace: [], usage: { cost: 0.75 } } },
+	]);
+	const utility = computeUtility(metrics, { complexity: 4 } as never, { taskScore: 1, cost: 1, latency: 0.001, instability: 2, complexity: 0.5 });
+
+	assert.equal(metrics.taskScore, 0.5);
+	assert.equal(metrics.dollarCost, 1);
+	assert.equal(metrics.wallTimeMs, 4000);
+	assert.equal(metrics.failureRate, 0.5);
+	assert.equal(utility, 0.5 - 1 - 0.004 - 1 - 2);
 });
