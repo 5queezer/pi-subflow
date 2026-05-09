@@ -26,7 +26,7 @@ Flow modules expose simple TypeScript functions for consumers:
 - `runParallel`
 - `runDag`
 
-The package also exposes a Pi extension entry point via `registerPiSubflowExtension` and the default extension export. The extension registers a `subflow` tool that dispatches to the orchestration APIs, displays a live progress widget in interactive sessions, owns its visible tool card rendering via `renderShell: "self"`, returns compact summary cards with task-level success/error lines, agent/model metadata, and labeled DAG graph structure derived from structured dependency metadata, and records JSONL history. It also registers an interactive `/subflow-runs` browser that lists recent runs and opens per-run details including DAG graph metadata.
+The package also exposes a Pi extension entry point via `registerPiSubflowExtension` and the default extension export. The extension registers a `subflow` tool that dispatches to the orchestration APIs, displays a live progress widget in interactive sessions, owns its visible tool card rendering via `renderShell: "self"`, returns compact summary cards with task-level success/error lines, agent/model metadata, and labeled DAG graph structure derived from structured dependency metadata, and records JSONL history. An interactive run-history browser remains planned, but `/subflow-runs` is not registered until its TUI behavior is stable across Pi terminals.
 
 Supporting modules expose Pi-extension-adjacent capabilities without coupling them to tool registration:
 
@@ -43,14 +43,14 @@ The DAG validation boundary is an internal workflow-IR seam: it should normalize
 
 Positive:
 
-- Workflow logic remains separated from Pi extension registration and TUI concerns, while a thin extension adapter now makes the core usable from Pi with live progress, readable final summaries, and history browsing UI.
+- Workflow logic remains separated from Pi extension registration and TUI concerns, while a thin extension adapter now makes the core usable from Pi with live progress and readable final summaries.
 - Single, chain, parallel, DAG, verifier, retry, timeout, validation, budget, cancellation, tool allowlisting, and trace behavior can be tested without launching Pi subprocesses.
 - SDK-based execution avoids subprocess overhead while keeping isolated per-subagent sessions and can still honor named agent instructions through the `agentDefinitions` runner option.
 - The design leaves room for future adaptive routing and verifier-repair loops.
 
 Tradeoffs:
 
-- This is a prototype, not a drop-in replacement for the current Pi extension; the extension adapter now has progress and history browsing UI, but it still does not recreate the original extension's full streaming result renderer and run-management experience.
+- This is a prototype, not a drop-in replacement for the current Pi extension; the extension adapter has live progress and JSONL history recording, but interactive history browsing and the original extension's full streaming run-management experience remain planned work.
 - PocketFlow TypeScript is still small and may not cover every desired workflow pattern directly.
 - SDK execution couples the real runner to the `@earendil-works/pi-coding-agent` package API, so version compatibility and available tool names must be monitored.
 - Some orchestration helpers remain custom because Pi-specific semantics are stricter than generic flow execution.

@@ -1,8 +1,7 @@
-import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { discoverAgents, type AgentDefinition, type AgentScope } from "./agents.js";
 import { appendRunHistory } from "./history.js";
@@ -171,20 +170,6 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 		},
 	});
 
-	pi.registerCommand("subflow-runs", {
-		description: "Browse pi-subflow run history",
-		handler: async (_args: string, ctx: ExtensionContext) => {
-			const path = resolveHistoryPath(options.historyPath, ctx);
-			const runs = await readRunHistory(path);
-			if (runs.length === 0) {
-				ctx.ui.notify(`No pi-subflow runs found at ${path}`, "info");
-				return;
-			}
-			await ctx.ui.custom((tui: { requestRender?: () => void }, _theme: unknown, _keybindings: unknown, done: (result?: unknown) => void) => new RunHistoryBrowser(runs, path, () => {
-				done(undefined);
-			}, () => tui.requestRender?.()), { overlay: true, overlayOptions: { width: "80%", maxHeight: "80%", minWidth: 60 } });
-		},
-	});
 }
 
 export default function piSubflowExtension(pi: ExtensionAPI): void {
@@ -338,83 +323,8 @@ function resolveHistoryPath(path: PiSubflowExtensionOptions["historyPath"], ctx:
 	return path ?? join(ctx.cwd, ".pi", "subflow-runs.jsonl");
 }
 
-interface StoredRun extends FlowResult {
-	runId?: string;
-	createdAt?: string;
-	mode: "single" | "chain" | "parallel" | "dag";
-}
-
-async function readRunHistory(path: string): Promise<StoredRun[]> {
-	try {
-		const text = await readFile(path, "utf8");
-		return text.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line) as StoredRun).reverse();
-	} catch {
-		return [];
-	}
-}
-
-class RunHistoryBrowser {
-	private selected = 0;
-	private detail = false;
-
-	constructor(private readonly runs: StoredRun[], private readonly path: string, private readonly close: () => void, private readonly requestRender: () => void) {}
-
-	render(width: number): string[] {
-		const lines = this.detail ? this.renderDetail(width) : this.renderList(width);
-		return lines.map((line) => truncate(line, width));
-	}
-
-	handleInput(data: string): void {
-		if (data === "\u001b" || data === "q") {
-			if (this.detail) this.detail = false;
-			else this.close();
-		} else if (!this.detail && (data === "\u001b[A" || data === "k")) {
-			this.selected = Math.max(0, this.selected - 1);
-		} else if (!this.detail && (data === "\u001b[B" || data === "j")) {
-			this.selected = Math.min(this.runs.length - 1, this.selected + 1);
-		} else if (!this.detail && (data === "\r" || data === "\n")) {
-			this.detail = true;
-		}
-		this.requestRender();
-	}
-
-	invalidate(): void {}
-
-	private renderList(width: number): string[] {
-		return [
-			"pi-subflow runs",
-			`history: ${this.path}`,
-			"↑↓/j/k navigate • enter details • q/esc close",
-			"",
-			...this.runs.slice(0, 50).map((run, index) => {
-				const prefix = index === this.selected ? ">" : " ";
-				return `${prefix} ${run.createdAt ?? "unknown-time"} ${run.status} ${run.mode} ${run.runId ?? "no-run-id"} (${run.results?.length ?? 0} results)`;
-			}),
-		].map((line) => truncate(line, width));
-	}
-
-	private renderDetail(width: number): string[] {
-		const run = this.runs[this.selected];
-		if (!run) return ["No run selected"];
-		const resultLines = run.mode === "dag" ? formatDagResult(run.results ?? []) : (run.results ?? []).flatMap((result) => [
-			formatTaskResult(result),
-			`  task: ${result.task}`,
-			...(result.error ? [`  error: ${result.error}`] : []),
-			...(result.output ? [`  output: ${result.output}`] : []),
-		]);
-		const lines = [
-			`pi-subflow run ${run.runId ?? "no-run-id"}`,
-			`${run.createdAt ?? "unknown-time"} • ${run.status} • ${run.mode}`,
-			"esc/q back • results:",
-			"",
-			...resultLines,
-		];
-		return lines.map((line) => truncate(line, width));
-	}
-}
-
 function truncate(value: string, width: number): string {
-	return value.length <= width ? value : `${value.slice(0, Math.max(0, width - 1))}…`;
+	return truncateToWidth(value, width, "…");
 }
 
 function formatCall(params: SubflowToolParams): string {

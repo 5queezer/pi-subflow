@@ -266,42 +266,11 @@ test("subflow extension provides a custom result renderer for the visible Pi too
 	assert.match(rendered, /✓ worker-1 \[worker · openrouter\/free\] → ran worker: visible/);
 });
 
-test("subflow extension history detail shows task models and DAG graph", async () => {
-	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
-	const historyPath = join(cwd, "runs.jsonl");
-	const runner = new RecordingRunner();
+test("subflow extension does not register the experimental /subflow-runs UI", () => {
 	const pi = fakePi();
-	registerPiSubflowExtension(pi, { historyPath, runnerFactory: () => runner });
-
-	await pi.tool.execute("call-1", { tasks: [{ name: "base", agent: "worker", task: "base", model: "openrouter/free" }, { name: "verify", agent: "worker", role: "verifier", dependsOn: ["base"], task: "verify", model: "openai/gpt-mini" }] }, undefined, undefined, fakeCtx(cwd));
-	const ctx = fakeCtx(cwd);
-	await pi.commands.get("subflow-runs").handler("", ctx);
-
-	const browser = ctx.customCalls[0].component;
-	browser.handleInput("\r");
-	const detail = browser.render(100).join("\n");
-
-	assert.match(detail, /DAG graph/);
-	assert.match(detail, /base \[worker · worker · openrouter\/free\] ✓/);
-	assert.match(detail, /└─ verify \[worker · verifier · openai\/gpt-mini\] ✓/);
-});
-
-test("/subflow-runs opens an interactive history browser", async () => {
-	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
-	await mkdirp(join(cwd, ".pi"));
-	await writeFile(join(cwd, ".pi", "subflow-runs.jsonl"), `${JSON.stringify({ runId: "r1", createdAt: "2026-05-08T00:00:00.000Z", mode: "single", status: "completed", output: "ok", results: [{ name: "worker-1", agent: "worker", task: "do", status: "completed", output: "ok", usage: {} }], trace: [] })}\n`);
-	const pi = fakePi();
-	const ctx = fakeCtx(cwd);
 	registerPiSubflowExtension(pi);
 
-	await pi.commands.get("subflow-runs").handler("", ctx);
-
-	assert.equal(ctx.customCalls.length, 1);
-	const lines = ctx.customCalls[0].component.render(80).join("\n");
-	assert.match(lines, /r1/);
-	assert.match(lines, /completed/);
-	ctx.customCalls[0].component.handleInput("\r");
-	assert.match(ctx.customCalls[0].component.render(80).join("\n"), /worker-1/);
+	assert.equal(pi.commands.has("subflow-runs"), false);
 });
 
 test("subflow extension rejects empty agent or task strings", async () => {
@@ -362,7 +331,7 @@ function fakePi() {
 function fakeCtx(cwd: string) {
 	const confirmations: string[] = [];
 	const widgets: Array<{ key: string; value: unknown }> = [];
-	const customCalls: Array<{ component: any; options: unknown }> = [];
+	const customCalls: Array<{ component: any; options: unknown; renderRequests: number; closed: boolean }> = [];
 	return {
 		cwd,
 		hasUI: true,
@@ -381,8 +350,10 @@ function fakeCtx(cwd: string) {
 			},
 			custom: async (factory: any, options: unknown) => {
 				let resolved = false;
-				const component = factory({ requestRender: () => {} }, { fg: (_name: string, text: string) => text, bold: (text: string) => text }, {}, () => { resolved = true; });
-				customCalls.push({ component, options });
+				const call = { component: undefined as any, options, renderRequests: 0, closed: false };
+				const component = factory({ requestRender: () => { call.renderRequests += 1; } }, { fg: (_name: string, text: string) => text, bold: (text: string) => text }, {}, () => { resolved = true; call.closed = true; });
+				call.component = component;
+				customCalls.push(call);
 				return resolved ? undefined : undefined;
 			},
 		},

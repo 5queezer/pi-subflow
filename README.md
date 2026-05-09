@@ -35,9 +35,18 @@ flowchart TD
 | Mode | Use when | Input shape |
 | --- | --- | --- |
 | Single | exactly one focused subagent task is useful | `agent` + `task` |
-| Chain | each step consumes the previous result | `chain: [{ agent, task }]` with optional `{previous}` |
+| Chain | a linear pipeline where each step may consume the immediately previous result | `chain: [{ agent, task }]` with optional `{previous}` |
 | Parallel | 2+ independent tasks can run concurrently | `tasks: [...]` with no `dependsOn` |
-| DAG | tasks have named dependencies and verifier fan-in | `tasks: [...]` with `dependsOn` |
+| DAG | named dependencies, parallel stages, and verifier fan-in | `tasks: [...]` with `dependsOn` |
+
+### Chain vs DAG
+
+A DAG can represent the execution order of a chain by making each task depend on the previous task, but the two modes are intentionally not identical:
+
+- `chain` is an ergonomic linear pipeline. Each step runs after the previous step and can splice the previous step's output into its prompt with `{previous}`.
+- `dag` is a named dependency graph. Dependencies control scheduling and failure propagation. Dependency outputs are automatically injected only for `role: "verifier"` tasks, where fan-in synthesis is expected.
+
+Use `chain` for simple scout → implementer → reviewer handoffs where each prompt needs the previous answer. Use `dag` when tasks need explicit names, fan-out/fan-in, parallel dependency stages, verifier synthesis, or graph validation.
 
 ## DAGs: the interesting part
 
@@ -117,7 +126,6 @@ flowchart TB
 - Runtime tool allowlist checks
 - Project-agent and external-side-effect policy gates
 - JSONL run history at `.pi/subflow-runs.jsonl`
-- Interactive `/subflow-runs` browser
 - Live progress widget with running/completed/failed/skipped counts
 - LLM-facing `promptSnippet` and `promptGuidelines` so Pi knows when and how to use the loaded tool
 
@@ -170,13 +178,7 @@ Then run a verifier that synthesizes the findings.
 Use cheap models for the first three tasks and a stronger model for the verifier.
 ```
 
-The extension also registers:
-
-```text
-/subflow-runs
-```
-
-This opens an interactive browser for `.pi/subflow-runs.jsonl` in the active project.
+The extension records JSONL history to `.pi/subflow-runs.jsonl` in the active project. An interactive history browser is planned, but is not registered until its TUI behavior is stable.
 
 ## TypeScript API
 
@@ -321,7 +323,7 @@ npm run build && npm test
 
 Husky installs from the `prepare` script and runs the same build-plus-test check in `.husky/pre-commit` before commits.
 
-The test suite covers orchestration behavior, DAG validation, policy checks, Pi extension rendering, run history, SDK runner behavior, and LLM-facing prompt guidance.
+The test suite covers orchestration behavior, DAG validation, policy checks, Pi extension rendering, JSONL run history recording, SDK runner behavior, and LLM-facing prompt guidance.
 
 ## Troubleshooting
 
