@@ -45,6 +45,7 @@ export function createSubflowOptimizeTool(options: {
 			"canonical eval sets live under .pi/subflow/evals/*.yaml; inline evalSet is a convenience only and should be saved if useful.",
 			"The tool does not mutate workflow files; future apply behavior must be a separate tool.",
 			"Pass exactly one of workflowPath or dagYaml, and exactly one of evalSet.path or evalSet.inline.",
+			"maxCandidateRuns is a budget cap on candidate repetitions; it can reduce but not increase evalSet.scoring.minRunsPerCase.",
 			"Invalid candidate DAG YAMLs are reported and not run.",
 		],
 		renderShell: "self" as const,

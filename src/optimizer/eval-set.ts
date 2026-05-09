@@ -35,7 +35,7 @@ export async function loadEvalSet(input: { evalSet: EvalSetInput; cwd: string })
 		throw new Error(`invalid eval set YAML: ${document.errors.map((error) => error.message).join("; ")}`);
 	}
 	const evalSet = normalizeEvalSet(document.toJSON(), `eval set ${input.evalSet.path}`);
-	const canonical = isSubpath(join(input.cwd, ".pi", "subflow", "evals"), absolutePath);
+	const canonical = await isCanonicalEvalPath(input.cwd, realAbsolutePath);
 	return {
 		evalSet,
 		source: { kind: "path", path: relative(input.cwd, absolutePath), canonical },
@@ -58,6 +58,15 @@ async function resolveProjectRealPath(cwd: string, path: string): Promise<string
 		throw new Error("evalSet.path must stay inside the project");
 	}
 	return realEvalSetPath;
+}
+
+async function isCanonicalEvalPath(cwd: string, realEvalSetPath: string): Promise<boolean> {
+	try {
+		const realCanonicalDir = await realpath(join(cwd, ".pi", "subflow", "evals"));
+		return isSubpath(realCanonicalDir, realEvalSetPath);
+	} catch {
+		return false;
+	}
 }
 
 function normalizeEvalSet(value: unknown, context: string): EvalSet {

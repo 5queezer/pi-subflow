@@ -39,6 +39,7 @@ test("subflow extension registers subflow_optimize with LLM-facing guidance", ()
 	assert.equal(tool.name, "subflow_optimize");
 	assert.match(tool.promptSnippet, /dry-run optimizer/);
 	assert(tool.promptGuidelines.some((line: string) => /canonical.*\.pi\/subflow\/evals/.test(line)));
+	assert(tool.promptGuidelines.some((line: string) => /maxCandidateRuns.*budget cap/.test(line)));
 	assert(tool.promptGuidelines.some((line: string) => /does not mutate/.test(line)));
 });
 

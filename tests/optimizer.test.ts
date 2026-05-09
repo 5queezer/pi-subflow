@@ -65,6 +65,19 @@ test("loadEvalSet marks non-canonical project eval files", async () => {
 	assert.equal(loaded.source.canonical, false);
 });
 
+test("loadEvalSet marks symlinked canonical paths by their real location", async () => {
+	const cwd = await tmpProject();
+	const evalDir = join(cwd, ".pi", "subflow", "evals");
+	await mkdir(evalDir, { recursive: true });
+	await writeFile(join(cwd, "docs.yaml"), baseEvalSetYaml);
+	await symlink(join(cwd, "docs.yaml"), join(evalDir, "docs-link.yaml"));
+
+	const loaded = await loadEvalSet({ evalSet: { path: ".pi/subflow/evals/docs-link.yaml" }, cwd });
+
+	assert.equal(loaded.source.kind, "path");
+	assert.equal(loaded.source.canonical, false);
+});
+
 test("loadEvalSet accepts inline eval sets and recommends persistence", async () => {
 	const loaded = await loadEvalSet({
 		cwd: await tmpProject(),
