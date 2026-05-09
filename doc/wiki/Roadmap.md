@@ -4,16 +4,16 @@ Conditional DAG edges (`when`), inline nested workflows, and bounded loops are i
 
 ## Workflow optimization
 
-ADR 0003 proposes self-optimizing static DAGs as the next research direction. The first optimizer should profile a target DAG on an eval set, analyze traces, propose node prompt/model/tool/thinking changes and topology changes, generate candidate DAG YAML, evaluate candidates against the same objective, and select a replacement only when score/cost/latency/stability improve without unacceptable regression.
-
-The objective should be explicit:
+ADR 0003 now has a concrete MVP: the dry-run-only Pi tool, `subflow_optimize`. It accepts exactly one of `workflowPath` or `dagYaml`, exactly one of `evalSet.path` or `evalSet.inline`, and optional `candidateDagYamls`. It loads canonical eval sets from `.pi/subflow/evals/*.yaml`, scores the baseline and candidates with the explicit utility formula below, and writes JSON reports under `.pi/subflow/optimizer-reports/`; it does not mutate workflow files.
 
 ```text
 utility = task_score
         - λ_cost * dollar_cost
-        - λ_latency * wall_time
+        - λ_latency * wall_time_ms
         - λ_instability * failure_rate
         - λ_complexity * graph_complexity
 ```
+
+The follow-up should stay separate and explicit: add `subflow_optimize_apply` only after dry-run evaluation is stable, holdout/regression evals exist, and the safety model for file replacement is clear.
 
 This keeps the near-term scope on static DAG optimization inspired by AFlow, MASS, and AWO rather than open-ended self-modification of `pi-subflow` itself.

@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/5queezer/pi-subflow/refs/heads/master/schemas/subflow-eval.schema.json
+name: docs-consistency
+workflow: examples/workflows/docs-consistency.yaml
+objective:
+  taskScore: 1
+  cost: 0
+  latency: 0
+  instability: 1
+  complexity: 0.25
+scoring:
+  minRunsPerCase: 1
+  minUtilityDelta: 0.05
+  maxFailureRateRegression: 0
+cases:
+  - name: readme-wiki-adr-schema-sync
+    input: Check README.md, doc/wiki, doc/adr, schemas, and src/extension.ts LLM-facing guidance for consistency.
+    expectedSections: [Summary, Findings, Recommendation]

@@ -51,6 +51,31 @@ test("doc describes DAG validation boundary and current expressiveness", async (
 	assert.match(adr, /graph librar(?:y|ies)/);
 });
 
+test("optimizer docs describe dry-run eval safety and index the workflow optimization page", async () => {
+	const readme = await readFile("README.md", "utf8");
+	const roadmap = await readFile("doc/wiki/Roadmap.md", "utf8");
+	const workflowOptimization = await readFile("doc/wiki/Workflow-optimization.md", "utf8");
+	const adr = await readFile("doc/adr/0003-self-optimizing-static-dags.md", "utf8");
+	const home = await readFile("doc/wiki/Home.md", "utf8");
+	const sidebar = await readFile("doc/wiki/_Sidebar.md", "utf8");
+
+	assert.match(readme, /subflow_optimize/);
+	assert.match(readme, /dry-run/);
+	assert.match(readme, /schemas\/subflow-eval\.schema\.json/);
+	assert.match(readme, /doc\/wiki\/Workflow-optimization\.md/);
+	assert.match(roadmap, /subflow_optimize/);
+	assert.match(roadmap, /dry-run/);
+	assert.match(roadmap, /does not mutate workflow files/);
+	assert.match(workflowOptimization, /\.pi\/subflow\/evals\/\*\.yaml/);
+	assert.match(workflowOptimization, /subflow_optimize_apply/);
+	assert.match(workflowOptimization, /never rewrites workflow files|does not mutate workflow files/);
+	assert.match(adr, /subflow_optimize/);
+	assert.match(adr, /subflow_optimize_apply/);
+	assert.match(adr, /\.pi\/subflow\/optimizer-reports/);
+	assert.match(home, /Workflow optimization/);
+	assert.match(sidebar, /Workflow optimization/);
+});
+
 test("workflow template examples are shipped and indexed", async () => {
 	const readme = await readFile("README.md", "utf8");
 	const templateNames = [
