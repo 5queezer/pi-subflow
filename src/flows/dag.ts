@@ -123,16 +123,22 @@ async function runLoopTask(
 	let previousIterationTerminalNames = [...(task.dependsOn ?? [])];
 	let iterationsCompleted = 0;
 	let stoppedEarly = false;
+	const loopResults: SubagentResult[] = [];
+	const loopByName = new Map(byName);
 	for (let iteration = 1; iteration <= task.loop.maxIterations; iteration += 1) {
 		const iterationPrefix = `${task.name}.${iteration}`;
 		const iterationTasks = expandDagTaskList(bodyTasks, previousIterationTerminalNames, iterationPrefix);
-		const iterationStart = results.length;
-		await executeDagGraph(iterationTasks, options, trace, results, byName, new Set(previousIterationTerminalNames));
-		const iterationResults = results.slice(iterationStart);
+		const iterationStart = loopResults.length;
+		await executeDagGraph(iterationTasks, options, trace, loopResults, loopByName, new Set(previousIterationTerminalNames));
+		const iterationResults = loopResults.slice(iterationStart);
+		for (const result of iterationResults) {
+			results.push(result);
+			if (result.name) byName.set(result.name, result);
+		}
 		const iterationTaskNames = new Set(iterationTasks.map((item) => item.name));
 		const iterationFailed = iterationResults.some((result) => result.agent === "budget" && result.status === "failed") || [...iterationTaskNames].some((name) => {
-			const result = byName.get(name);
-			return result?.status === "failed" || (result?.status === "skipped" && skippedBecauseFailedDependency(result, byName));
+			const result = loopByName.get(name);
+			return result?.status === "failed" || (result?.status === "skipped" && skippedBecauseFailedDependency(result, loopByName));
 		});
 		if (iterationFailed) {
 			return synthesizeLoopTaskResult(task, iteration, task.loop.maxIterations, false, "failed");
@@ -142,7 +148,7 @@ async function runLoopTask(
 		if (!task.loop.until) continue;
 		const aliasMap = new Map(bodyTasks.map((bodyTask) => [bodyTask.name, `${iterationPrefix}.${bodyTask.name}`]));
 		try {
-			if (evaluateWhenExpression(task.loop.until, (reference) => resolveLoopReference(reference, aliasMap, byName))) {
+			if (evaluateWhenExpression(task.loop.until, (reference) => resolveLoopReference(reference, aliasMap, loopByName))) {
 				stoppedEarly = true;
 				break;
 			}

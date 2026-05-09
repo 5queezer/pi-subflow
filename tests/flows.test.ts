@@ -271,6 +271,37 @@ test("runDag allows condition-skipped tasks inside bounded loop bodies", async (
 	assert.equal(runner.calls.length, 1);
 });
 
+
+test("runDag isolates concurrent bounded loop iteration results", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => {
+			if (name === "loop-a.1.first") await new Promise((resolve) => setTimeout(resolve, 5));
+			return JSON.stringify({ runNext: name !== "loop-b.1.first" });
+		},
+	});
+
+	const result = await runDag(
+		{
+			tasks: ["loop-a", "loop-b"].map((name) => ({
+				name,
+				loop: {
+					maxIterations: 1,
+					body: {
+						first: { agent: "mock", task: "first" },
+						second: { agent: "mock", dependsOn: ["first"], when: "${first.output.runNext} == true", task: "second" },
+					},
+				},
+			})),
+		},
+		{ runner, maxConcurrency: 2 },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.equal(result.results.find((item) => item.name === "loop-b.1.second")?.status, "skipped");
+	assert.match(result.results.find((item) => item.name === "loop-a")?.output ?? "", /"status":"completed"/);
+	assert.match(result.results.find((item) => item.name === "loop-b")?.output ?? "", /"status":"completed"/);
+});
+
 test("runDag fails a bounded loop when a body dependency fails and a downstream body task is skipped", async () => {
 	const runner = new MockSubagentRunner({
 		mock: async ({ name }) => {
