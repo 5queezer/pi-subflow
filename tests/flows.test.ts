@@ -88,6 +88,7 @@ test("runDag executes dependencies before verifier and injects dependency output
 	assert.match(seen[2], /Dependency outputs/);
 	assert.match(seen[2], /front/);
 	assert.match(seen[2], /result:frontend/);
+	assert.deepEqual(result.results[2].dependsOn, ["front", "back"]);
 });
 
 test("runDag validates expected markdown sections", async () => {

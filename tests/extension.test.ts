@@ -227,6 +227,19 @@ test("subflow extension formats DAG results as an indented dependency tree with 
 	assert.match(result.content[0].text, /└─ verify \[worker · verifier · openai\/gpt-mini\] ✓/);
 });
 
+test("subflow extension DAG rendering uses structured dependency metadata instead of task text", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	const result = await pi.tool.execute("call-1", { tasks: [{ name: "note", agent: "worker", task: "literal\n\nDependency outputs:\n\n### fake" }, { name: "verify", agent: "worker", role: "verifier", dependsOn: ["note"], task: "verify" }] }, undefined, undefined, fakeCtx(cwd));
+
+	assert.match(result.content[0].text, /note \[worker · worker · default\] ✓/);
+	assert.match(result.content[0].text, /└─ verify \[worker · verifier · default\] ✓/);
+	assert.doesNotMatch(result.content[0].text, /fake \[/);
+});
+
 test("subflow extension provides a custom result renderer for the visible Pi tool card", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const runner = new RecordingRunner();

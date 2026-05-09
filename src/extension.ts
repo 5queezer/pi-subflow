@@ -446,12 +446,12 @@ function formatTaskResult(result: SubagentResult): string {
 }
 
 function formatDagResult(results: SubagentResult[]): string[] {
-	const roots = results.filter((result) => extractDependencyNames(result.task).length === 0);
+	const roots = results.filter((result) => (result.dependsOn ?? []).length === 0);
 	const lines = ["DAG graph"];
 	for (const root of roots.length ? roots : results) {
 		const rootName = root.name ?? root.agent;
 		lines.push(`${rootName} ${formatDagNodeMeta(root)} ${statusIcon(root.status)}`);
-		for (const child of results.filter((candidate) => extractDependencyNames(candidate.task).includes(rootName))) {
+		for (const child of results.filter((candidate) => (candidate.dependsOn ?? []).includes(rootName))) {
 			lines.push(`  └─ ${child.name ?? child.agent} ${formatDagNodeMeta(child)} ${statusIcon(child.status)}`);
 		}
 	}
@@ -465,13 +465,6 @@ function formatTaskIdentity(result: SubagentResult): string {
 
 function formatDagNodeMeta(result: SubagentResult): string {
 	return `[${[result.agent, result.role ?? "worker", result.model ?? "default"].join(" · ")}]`;
-}
-
-function extractDependencyNames(task: string): string[] {
-	const marker = "Dependency outputs:";
-	const index = task.indexOf(marker);
-	if (index === -1) return [];
-	return [...task.slice(index + marker.length).matchAll(/^###\s+(.+)$/gm)].map((match) => match[1].trim());
 }
 
 function statusIcon(status: SubagentResult["status"]): string {

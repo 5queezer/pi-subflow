@@ -16,7 +16,7 @@ export async function runTask(task: RunnerInput, options: ExecutionOptions, trac
 		else options.signal?.addEventListener("abort", abortAttempt, { once: true });
 		try {
 			const result = await withTimeout(options.runner.run(task, attemptController.signal), options.timeoutSeconds, task.name, () => attemptController.abort());
-			const withMetadata = { ...result, role: result.role ?? task.role, model: result.model ?? task.model };
+			const withMetadata = { ...result, role: result.role ?? task.role, model: result.model ?? task.model, dependsOn: result.dependsOn ?? task.dependsOn };
 			const normalized = withMetadata.status === "failed" ? withMetadata : { ...withMetadata, status: "completed" as const };
 			if (normalized.status === "completed" && (task.expectedSections || task.jsonSchema)) {
 				validateOutput(normalized.output, task);

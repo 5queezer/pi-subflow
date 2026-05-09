@@ -47,6 +47,7 @@ export interface SubagentResult {
 	task: string;
 	role?: SubagentTask["role"];
 	model?: string;
+	dependsOn?: string[];
 	status: TaskStatus;
 	output: string;
 	error?: string;

@@ -16,7 +16,7 @@ export async function runDag(input: { tasks: SubagentTask[] }, options: Executio
 		const stageResults = await mapLimit(stages[stageIndex], options.maxConcurrency ?? 4, async (task) => {
 			const failedDependency = (task.dependsOn ?? []).find((dep) => byName.get(dep)?.status !== "completed");
 			if (failedDependency) {
-				return { name: task.name, agent: task.agent, task: task.task, role: task.role, model: task.model, status: "skipped" as const, output: "", error: `dependency failed: ${failedDependency}`, usage: {} };
+				return { name: task.name, agent: task.agent, task: task.task, role: task.role, model: task.model, dependsOn: task.dependsOn, status: "skipped" as const, output: "", error: `dependency failed: ${failedDependency}`, usage: {} };
 			}
 			const runnable = task.role === "verifier" ? appendDependencyOutputs(task, byName) : task;
 			return runTask(runnable, options, trace);
