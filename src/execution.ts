@@ -7,9 +7,9 @@ export function namedTask(task: SubagentTask, index = 0): RunnerInput {
 
 export async function runTask(task: RunnerInput, options: ExecutionOptions, trace: TraceEvent[]): Promise<SubagentResult> {
 	trace.push({ type: "task_start", name: task.name, timestamp: Date.now() });
-	const maxRetries = options.maxRetries ?? 1;
+	const maxAttempts = retryAttempts(task, options.maxRetries ?? 1);
 	let lastError = "";
-	for (let attempt = 1; attempt <= maxRetries; attempt++) {
+	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 		const attemptController = new AbortController();
 		const abortAttempt = () => attemptController.abort();
 		if (options.signal?.aborted) attemptController.abort();
@@ -46,6 +46,11 @@ export async function mapLimit<T, R>(items: T[], concurrency: number, fn: (item:
 	});
 	await Promise.all(workers);
 	return results;
+}
+
+function retryAttempts(task: RunnerInput, requestedAttempts: number): number {
+	if (task.authority === "internal_mutation" || task.authority === "external_side_effect") return 1;
+	return Math.max(1, requestedAttempts);
 }
 
 export function aggregateStatus(results: SubagentResult[]): "completed" | "failed" {

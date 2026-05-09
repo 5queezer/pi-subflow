@@ -111,6 +111,38 @@ test("runDag validates expected markdown sections", async () => {
 	assert.match(result.results[0].error ?? "", /missing expected section: Evidence/);
 });
 
+test("runSingle retries read-only failures up to maxRetries", async () => {
+	let attempts = 0;
+	const runner: SubagentRunner = {
+		async run(input: RunnerInput): Promise<SubagentResult> {
+			attempts += 1;
+			if (attempts < 3) throw new Error("transient");
+			return { name: input.name, agent: input.agent, task: input.task, status: "completed", output: "ok", usage: {} };
+		},
+	};
+
+	const result = await runSingle({ agent: "mock", task: "inspect", authority: "read_only" }, { runner, maxRetries: 3 });
+
+	assert.equal(result.status, "completed");
+	assert.equal(attempts, 3);
+});
+
+test("runSingle does not retry mutating or external side-effect tasks", async () => {
+	let attempts = 0;
+	const runner: SubagentRunner = {
+		async run(): Promise<SubagentResult> {
+			attempts += 1;
+			throw new Error("do not repeat");
+		},
+	};
+
+	const result = await runSingle({ agent: "mock", task: "publish", authority: "external_side_effect" }, { runner, maxRetries: 3 });
+
+	assert.equal(result.status, "failed");
+	assert.equal(attempts, 1);
+	assert.match(result.results[0].error ?? "", /do not repeat/);
+});
+
 test("runSingle aborts the active runner attempt when a task times out", async () => {
 	let aborted = false;
 	const runner: SubagentRunner = {
