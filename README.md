@@ -95,7 +95,7 @@ const result = await runDag({
 
 ## Architecture decision records
 
-ADRs live in [`docs/adr/`](docs/adr/). Start with [`ADR 0001: Use PocketFlow for the subagent orchestration core`](docs/adr/0001-pocketflow-orchestration-core.md).
+ADRs live in [`docs/adr/`](docs/adr/). Start with [`ADR 0001: Use PocketFlow for the subagent orchestration core`](docs/adr/0001-pocketflow-orchestration-core.md). For the DAG validation direction, see [`ADR 0002: Introduce a DAG validation boundary before advanced workflow features`](docs/adr/0002-dag-validation-ir-boundary.md).
 
 Keep this README and ADRs synchronized when architecture, scope, public APIs, install/test commands, or design rationale change.
 
