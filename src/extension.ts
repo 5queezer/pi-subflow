@@ -1,5 +1,6 @@
+import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, extname, isAbsolute, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -72,7 +73,7 @@ const chainStepSchema = Type.Object({
 	thinking: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("minimal"), Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("xhigh")])),
 });
 
-export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool" | "registerCommand">, options: PiSubflowExtensionOptions = {}): void {
+export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool" | "registerCommand" | "on">, options: PiSubflowExtensionOptions = {}): void {
 	pi.registerTool({
 		name: "subflow",
 		label: "Pi Subflow",
@@ -85,6 +86,7 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			"Use subflow parallel mode when 2+ independent tasks can run concurrently and do not depend on each other.",
 			"Use subflow DAG mode when tasks have explicit dependsOn relationships; set role: \"verifier\" for synthesis or validation nodes that need dependency outputs.",
 			"For concise LLM-authored DAGs, prefer dagYaml: a small YAML subset whose keys are task names; use needs as an alias for dependsOn.",
+			"Repo-local .pi/subflow/workflows/*.yaml files are registered as immediate slash commands named after the file stem, such as /code-review; they are listed in a startup [Workflows] section, text after the command is injected as workflow command arguments, and the final result is shown in an editor.",
 			"For subflow task roles, only use \"worker\" or \"verifier\". Omit role to default to worker; do not invent roles like \"researcher\".",
 			"For subflow DAGs, task names must be unique; missing dependencies, self-dependencies, and dependency cycles are rejected before execution.",
 			"Set subflow tools to the minimum tool subset each subagent needs. Omit tools only when the default Pi tool set is appropriate.",
@@ -122,61 +124,141 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			return new Text(text, 0, 0);
 		},
 		async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
-			const params = normalizeDagYaml(rawParams as SubflowToolParams);
-			const mode = inferMode(params);
-			validateNonEmptyStrings(params);
-			const flowTasks = tasksForPolicy(params);
-			validateExecutionPolicy({
-				agentScope: params.agentScope,
-				confirmProjectAgents: params.confirmProjectAgents,
-				hasUI: ctx.hasUI,
-				riskTolerance: params.riskTolerance,
-				allowExternalSideEffectWithoutConfirmation: params.allowExternalSideEffectWithoutConfirmation,
-				tasks: flowTasks,
-			});
-			await confirmPolicies(params, flowTasks, ctx);
-			const agents = await discoverAgents({
-				scope: params.agentScope ?? "user",
-				userDir: options.userDir ?? join(homedir(), ".pi", "agent", "agents"),
-				projectDir: options.projectDir ?? join(ctx.cwd, ".pi", "agents"),
-			});
-			const effectiveParams = applyAgentDefaults(params, agents, ctx.cwd);
-			validateToolAllowlist(tasksForPolicy(effectiveParams), options.allowedTools);
-			const baseRunner = options.runnerFactory?.({ agents, ctx, params: effectiveParams }) ?? new PiSdkRunner({ agentDefinitions: agents });
-			const progress = createProgressReporter(ctx, mode, tasksForPolicy(effectiveParams).length, params.timeoutSeconds);
-			const runner = progress ? new ProgressRunner(baseRunner, progress) : baseRunner;
-			progress?.start();
-			const executionOptions: ExecutionOptions = {
-				runner,
-				maxConcurrency: params.maxConcurrency,
-				timeoutSeconds: params.timeoutSeconds,
-				maxRetries: params.maxRetries,
-				maxCost: params.maxCost,
-				maxTokens: params.maxTokens,
-				maxTurns: params.maxTurns,
-				maxVerificationRounds: params.maxVerificationRounds,
-				signal: signal ?? ctx.signal,
-			};
-			let result: FlowResult;
-			try {
-				result = await runSelectedFlow(mode, effectiveParams, executionOptions);
-			} finally {
-				progress?.clear();
-			}
-			await appendRunHistory(resolveHistoryPath(options.historyPath, ctx), { ...result, mode });
-			const details = { ...result, mode };
-			return {
-				content: [{ type: "text" as const, text: formatResult(result, mode) }],
-				details,
-				isError: result.status !== "completed",
-			};
+			return executeSubflow(rawParams as SubflowToolParams, ctx, options, signal);
 		},
 	});
 
+	const registeredWorkflowCommands = new Set<string>();
+	pi.on("session_start", async (_event, ctx) => {
+		const workflowDir = join(ctx.cwd, ".pi", "subflow", "workflows");
+		let entries: string[];
+		try {
+			entries = await readdir(workflowDir);
+		} catch (error) {
+			if (isNodeError(error) && error.code === "ENOENT") return;
+			throw error;
+		}
+		const workflowCommands: string[] = [];
+		for (const entry of entries.sort()) {
+			const extension = extname(entry);
+			if (extension !== ".yaml" && extension !== ".yml") continue;
+			const commandName = basename(entry, extension);
+			if (!isSafeWorkflowCommandName(commandName)) continue;
+			workflowCommands.push(commandName);
+			if (registeredWorkflowCommands.has(commandName)) continue;
+			registeredWorkflowCommands.add(commandName);
+			pi.registerCommand(commandName, {
+				description: `Run .pi/subflow/workflows/${entry} as a pi-subflow DAG`,
+				handler: async (args, commandCtx) => {
+					const dagYaml = await readFile(join(commandCtx.cwd, ".pi", "subflow", "workflows", entry), "utf8");
+					const workflowParams = normalizeDagYaml({ dagYaml, agentScope: "both" });
+					const { dagYaml: _dagYaml, ...normalizedParams } = workflowParams;
+					const executableParams = addWorkflowCommandArguments(normalizedParams, args);
+					validateWorkflowCommandCwds(executableParams.tasks ?? []);
+					const result = await executeSubflow(executableParams, commandCtx, options, commandCtx.signal);
+					commandCtx.ui.notify(`Workflow /${commandName} ${result.isError ? "failed" : "completed"}`, result.isError ? "error" : "info");
+					await commandCtx.ui.editor(`Workflow /${commandName} result`, formatWorkflowEditorResult(result));
+				},
+			});
+		}
+		if (workflowCommands.length > 0) {
+			ctx.ui.notify(formatWorkflowStartupSection(workflowCommands));
+		}
+	});
 }
 
 export default function piSubflowExtension(pi: ExtensionAPI): void {
 	registerPiSubflowExtension(pi);
+}
+
+async function executeSubflow(rawParams: SubflowToolParams, ctx: ExtensionContext, options: PiSubflowExtensionOptions, signal?: AbortSignal) {
+	const params = normalizeDagYaml(rawParams);
+	const mode = inferMode(params);
+	validateNonEmptyStrings(params);
+	const flowTasks = tasksForPolicy(params);
+	validateExecutionPolicy({
+		agentScope: params.agentScope,
+		confirmProjectAgents: params.confirmProjectAgents,
+		hasUI: ctx.hasUI,
+		riskTolerance: params.riskTolerance,
+		allowExternalSideEffectWithoutConfirmation: params.allowExternalSideEffectWithoutConfirmation,
+		tasks: flowTasks,
+	});
+	await confirmPolicies(params, flowTasks, ctx);
+	const agents = await discoverAgents({
+		scope: params.agentScope ?? "user",
+		userDir: options.userDir ?? join(homedir(), ".pi", "agent", "agents"),
+		projectDir: options.projectDir ?? join(ctx.cwd, ".pi", "agents"),
+	});
+	const effectiveParams = applyAgentDefaults(params, agents, ctx.cwd);
+	validateToolAllowlist(tasksForPolicy(effectiveParams), options.allowedTools);
+	const baseRunner = options.runnerFactory?.({ agents, ctx, params: effectiveParams }) ?? new PiSdkRunner({ agentDefinitions: agents });
+	const progress = createProgressReporter(ctx, mode, tasksForPolicy(effectiveParams).length, params.timeoutSeconds);
+	const runner = progress ? new ProgressRunner(baseRunner, progress) : baseRunner;
+	progress?.start();
+	const executionOptions: ExecutionOptions = {
+		runner,
+		maxConcurrency: params.maxConcurrency,
+		timeoutSeconds: params.timeoutSeconds,
+		maxRetries: params.maxRetries,
+		maxCost: params.maxCost,
+		maxTokens: params.maxTokens,
+		maxTurns: params.maxTurns,
+		maxVerificationRounds: params.maxVerificationRounds,
+		signal: signal ?? ctx.signal,
+	};
+	let result: FlowResult;
+	try {
+		result = await runSelectedFlow(mode, effectiveParams, executionOptions);
+	} finally {
+		progress?.clear();
+	}
+	await appendRunHistory(resolveHistoryPath(options.historyPath, ctx), { ...result, mode });
+	const details = { ...result, mode };
+	return {
+		content: [{ type: "text" as const, text: formatResult(result, mode) }],
+		details,
+		isError: result.status !== "completed",
+	};
+}
+
+function isSafeWorkflowCommandName(name: string): boolean {
+	return /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name);
+}
+
+function formatWorkflowStartupSection(commandNames: string[]): string {
+	const commands = commandNames.map((name) => `/${name}`).sort((a, b) => a.localeCompare(b));
+	return `[Workflows]\n ${commands.join(", ")}`;
+}
+
+function formatWorkflowEditorResult(result: Awaited<ReturnType<typeof executeSubflow>>): string {
+	const summary = result.content.map((item) => item.type === "text" ? item.text : "").filter(Boolean).join("\n");
+	const finalOutput = result.details.output.trim();
+	return finalOutput ? `${summary}\n\n${finalOutput}` : summary;
+}
+
+function validateWorkflowCommandCwds(tasks: SubagentTask[]): void {
+	for (const task of tasks) {
+		if (!task.cwd) continue;
+		if (isAbsolute(task.cwd) || task.cwd.split(/[\\/]+/).includes("..")) {
+			throw new Error(`workflow command task ${task.name ?? task.agent} cwd must stay inside the project`);
+		}
+	}
+}
+
+function addWorkflowCommandArguments(params: SubflowToolParams, args: string): SubflowToolParams {
+	const workflowArgs = args.trim() || "(none provided)";
+	return {
+		...params,
+		tasks: params.tasks?.map((task) => ({
+			...task,
+			task: [`Workflow command arguments:`, workflowArgs, "", "Workflow task:", task.task].join("\n"),
+		})),
+	};
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+	return error instanceof Error && "code" in error;
 }
 
 async function confirmPolicies(params: SubflowToolParams, tasks: SubagentTask[], ctx: ExtensionContext): Promise<void> {
@@ -463,7 +545,7 @@ async function runSelectedFlow(mode: FlowMode, params: SubflowToolParams, option
 
 function resolveHistoryPath(path: PiSubflowExtensionOptions["historyPath"], ctx: ExtensionContext): string {
 	if (typeof path === "function") return path(ctx);
-	return path ?? join(ctx.cwd, ".pi", "subflow-runs.jsonl");
+	return path ?? join(ctx.cwd, ".pi", "subflow", "runs.jsonl");
 }
 
 function truncate(value: string, width: number): string {

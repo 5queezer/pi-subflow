@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { test } from "node:test";
 
 test("package.json exposes only the public package entrypoint", async () => {
@@ -58,5 +58,22 @@ test("workflow template examples are shipped and indexed", async () => {
 				assert.match(template, new RegExp(`## ${section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 			}
 		}
+	}
+});
+
+test("workflow templates advertise the DAG YAML schema", async () => {
+	const readme = await readFile("README.md", "utf8");
+	const schemaPath = "schemas/subflow-dag.schema.json";
+	const schema = JSON.parse(await readFile(schemaPath, "utf8"));
+	await stat(schemaPath);
+
+	assert.equal(schema.title, "pi-subflow DAG YAML");
+	assert.equal(schema.type, "object");
+	assert.match(readme, /schemas\/subflow-dag\.schema\.json/);
+	assert.match(readme, /yaml-language-server: \$schema=/);
+
+	for (const name of ["code-review", "implementation-planning", "research-synthesis", "docs-consistency", "bug-investigation"]) {
+		const template = await readFile(`examples/workflows/${name}.yaml`, "utf8");
+		assert.equal(template.split(/\r?\n/, 1)[0], "# yaml-language-server: $schema=../../schemas/subflow-dag.schema.json");
 	}
 });

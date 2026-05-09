@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -41,7 +41,7 @@ test("subflow extension registers a Pi tool that runs a single task and appends 
 	assert.equal(runner.calls[0].task, "Inspect auth");
 	assert.equal(result.isError, false);
 	assert.match(result.content[0].text, /completed/);
-	const history = await readFile(join(cwd, ".pi", "subflow-runs.jsonl"), "utf8");
+	const history = await readFile(join(cwd, ".pi", "subflow", "runs.jsonl"), "utf8");
 	assert.match(history, /"mode":"single"/);
 });
 
@@ -329,6 +329,77 @@ test("subflow extension provides a custom result renderer for the visible Pi too
 	assert.match(rendered, /✓ worker-1 \[worker · openrouter\/free\] → ran worker: visible/);
 });
 
+test("subflow extension registers repo-local workflow YAML files as slash commands", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const workflowsDir = join(cwd, ".pi", "subflow", "workflows");
+	await mkdir(workflowsDir, { recursive: true });
+	await writeFile(join(workflowsDir, "code-review.yaml"), `
+api-review:
+  agent: reviewer
+  task: Review APIs
+
+final-verdict:
+  agent: reviewer
+  role: verifier
+  needs: [api-review]
+  task: Synthesize findings
+`);
+	await writeFile(join(workflowsDir, "notes.txt"), "not a workflow");
+	const runnerCalls: RunnerInput[] = [];
+	const runner: SubagentRunner = {
+		async run(input) {
+			runnerCalls.push(input);
+			const output = input.name === "final-verdict" ? "## Required fixes\n\nNone.\n\n## Optional polish\n\nClarify examples." : `ran ${input.agent}: ${input.task}`;
+			return { name: input.name, agent: input.agent, task: input.task, role: input.role, model: input.model, dependsOn: input.dependsOn, status: "completed", output, usage: {} };
+		},
+	};
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	const startupCtx = fakeCtx(cwd);
+	await pi.emit("session_start", {}, startupCtx);
+	assert(pi.commands.has("code-review"));
+	assert.equal(pi.commands.has("notes"), false);
+	assert.deepEqual(startupCtx.notifications, ["[Workflows]\n /code-review"]);
+
+	const ctx = fakeCtx(cwd);
+	await pi.commands.get("code-review").handler("Investigate auth regression", ctx);
+
+	assert.deepEqual(runnerCalls.map((call) => call.name), ["api-review", "final-verdict"]);
+	assert.match(runnerCalls[0].task, /Workflow command arguments:\nInvestigate auth regression/);
+	assert.match(runnerCalls[1].task, /Workflow command arguments:\nInvestigate auth regression/);
+	assert.deepEqual(runnerCalls[1].dependsOn, ["api-review"]);
+	assert.equal(ctx.editors.length, 1);
+	assert.equal(ctx.editors[0].title, "Workflow /code-review result");
+	assert.match(ctx.editors[0].prefill, /subflow · dag · completed/);
+	assert.match(ctx.editors[0].prefill, /## Required fixes\n\nNone\./);
+	assert.match(ctx.editors[0].prefill, /## Optional polish\n\nClarify examples\./);
+	const history = await readFile(join(cwd, ".pi", "subflow", "runs.jsonl"), "utf8");
+	assert.match(history, /"mode":"dag"/);
+});
+
+test("repo-local workflow slash commands reject cwd values outside the project", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const workflowsDir = join(cwd, ".pi", "subflow", "workflows");
+	await mkdir(workflowsDir, { recursive: true });
+	await writeFile(join(workflowsDir, "unsafe.yaml"), `
+unsafe:
+  agent: reviewer
+  cwd: /tmp
+  task: Do work elsewhere
+`);
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+	await pi.emit("session_start", {}, fakeCtx(cwd));
+
+	await assert.rejects(
+		() => pi.commands.get("unsafe").handler("", fakeCtx(cwd)),
+		/workflow command task unsafe cwd must stay inside the project/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
 test("subflow extension does not register the experimental /subflow-runs UI", () => {
 	const pi = fakePi();
 	registerPiSubflowExtension(pi);
@@ -380,13 +451,21 @@ function fakeRenderContext() {
 }
 
 function fakePi() {
-	const state: { tool?: any; commands: Map<string, any> } = { commands: new Map() };
+	const state: { tool?: any; commands: Map<string, any>; handlers: Map<string, any[]> } = { commands: new Map(), handlers: new Map() };
 	return Object.assign(state, {
 		registerTool(tool: any) {
 			state.tool = tool;
 		},
 		registerCommand(name: string, command: any) {
 			state.commands.set(name, command);
+		},
+		on(event: string, handler: any) {
+			const handlers = state.handlers.get(event) ?? [];
+			handlers.push(handler);
+			state.handlers.set(event, handlers);
+		},
+		async emit(event: string, payload: unknown, ctx: unknown) {
+			for (const handler of state.handlers.get(event) ?? []) await handler(payload, ctx);
 		},
 	});
 }
@@ -395,6 +474,8 @@ function fakeCtx(cwd: string) {
 	const confirmations: string[] = [];
 	const widgets: Array<{ key: string; value: unknown }> = [];
 	const customCalls: Array<{ component: any; options: unknown; renderRequests: number; closed: boolean }> = [];
+	const editors: Array<{ title: string; prefill?: string }> = [];
+	const notifications: string[] = [];
 	return {
 		cwd,
 		hasUI: true,
@@ -402,12 +483,16 @@ function fakeCtx(cwd: string) {
 		confirmations,
 		widgets,
 		customCalls,
+		editors,
+		notifications,
 		ui: {
 			confirm: async (title: string, message: string) => {
 				confirmations.push(`${title}: ${message}`);
 				return true;
 			},
-			notify: () => {},
+			notify: (message: string) => {
+				notifications.push(message);
+			},
 			setWidget: (key: string, value: unknown) => {
 				widgets.push({ key, value });
 			},
@@ -418,6 +503,10 @@ function fakeCtx(cwd: string) {
 				call.component = component;
 				customCalls.push(call);
 				return resolved ? undefined : undefined;
+			},
+			editor: async (title: string, prefill?: string) => {
+				editors.push({ title, prefill });
+				return prefill;
 			},
 		},
 	};

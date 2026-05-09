@@ -150,7 +150,7 @@ flowchart TB
 - Agent-defined `tools`, `model`, and `thinking` defaults
 - Runtime tool allowlist checks
 - Project-agent and external-side-effect policy gates
-- JSONL run history at `.pi/subflow-runs.jsonl`
+- JSONL run history at `.pi/subflow/runs.jsonl`
 - Live progress widget with running/completed/failed/skipped counts
 - LLM-facing `promptSnippet` and `promptGuidelines` so Pi knows when and how to use the loaded tool
 
@@ -221,11 +221,28 @@ final-verdict:
   task: Synthesize the findings into a prioritized verdict
 ```
 
-The extension records JSONL history to `.pi/subflow-runs.jsonl` in the active project. An interactive history browser is planned, but is not registered until its TUI behavior is stable.
+The extension records JSONL history to `.pi/subflow/runs.jsonl` in the active project. An interactive history browser is planned, but is not registered until its TUI behavior is stable.
 
 ## Workflow templates
 
-Copy/paste templates from `examples/workflows/` into the `dagYaml` parameter, then adjust agent names, target paths, and task text for your project. The templates are plain YAML examples; they do not add built-in named workflows or slash commands.
+Copy/paste templates from `examples/workflows/` into the `dagYaml` parameter, then adjust agent names, target paths, and task text for your project.
+
+A JSON Schema for editor documentation and YAML language-server validation is available at [`schemas/subflow-dag.schema.json`](schemas/subflow-dag.schema.json). Templates include this header so compatible editors can validate the YAML shape and offer completions:
+
+```yaml
+# yaml-language-server: $schema=../../schemas/subflow-dag.schema.json
+```
+
+The schema validates task fields, required `agent`/`task` strings, allowed enum values, and the `needs`/`dependsOn` mutual exclusion. Runtime DAG validation still handles graph semantics such as missing dependencies, self-dependencies, duplicate names, and cycles.
+
+To make a template available as an immediate slash command, copy it into the repo-local `.pi/subflow/workflows/` directory. At Pi session start the extension registers every `.pi/subflow/workflows/*.yaml` or `.pi/subflow/workflows/*.yml` file with a safe filename as a command named after the file stem:
+
+```text
+.pi/subflow/workflows/code-review.yaml  ->  /code-review
+.pi/subflow/workflows/docs-consistency.yaml  ->  /docs-consistency
+```
+
+Running one of these commands executes the DAG immediately, without asking the LLM to call the `subflow` tool. At session start the extension also shows the discovered commands in a dedicated `[Workflows]` startup section. Text after the slash command is injected into each workflow task as `Workflow command arguments`, so commands such as `/bug-investigation failing npm test output...` give every subagent the user's request. When the DAG finishes, Pi shows the usual completion notification and opens the final subflow summary in an editor for review. Project workflow commands resolve both user and project-local agents, still ask for the existing project-agent and external-side-effect confirmations, reject task `cwd` values that are absolute or contain `..`, and append history to `.pi/subflow/runs.jsonl`. Run `/reload` after adding, removing, or renaming workflow files so Pi can refresh the command list.
 
 | Template | Use when | Path |
 | --- | --- | --- |
