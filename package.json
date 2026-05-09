@@ -16,6 +16,7 @@
 	"scripts": {
 		"test": "node --import tsx --test tests/*.test.ts",
 		"build": "tsc -p tsconfig.json && node scripts/link-dist-deps.mjs",
+		"check": "biome check .",
 		"wiki:sync": "node scripts/sync-wiki.mjs",
 		"wiki:sync:push": "node scripts/sync-wiki.mjs --push",
 		"prepare": "husky"
@@ -33,6 +34,7 @@
 		"yaml": "^2.8.4"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "^2.4.15",
 		"@types/node": "^25.6.2",
 		"husky": "^9.1.7",
 		"tsx": "^4.20.6",
