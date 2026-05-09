@@ -1,6 +1,7 @@
 import { Flow } from "pocketflow";
 import { aggregateStatus, enforceBudget, mapLimit, namedTask, runTask } from "../execution.js";
 import { planDagStages, validateDagTasks } from "./dag-validation.js";
+import { evaluateWhenExpression, type WhenPlaceholderReference, WhenExpressionError } from "./dag-when.js";
 import type { ExecutionOptions, FlowResult, SubagentResult, SubagentTask, TraceEvent } from "../types.js";
 import type { NormalizedDagTask } from "./dag-validation.js";
 
@@ -23,7 +24,16 @@ export async function runDag(input: { tasks: SubagentTask[] }, options: Executio
 		const stageResults = await mapLimit(stages[stageIndex], options.maxConcurrency ?? 4, async (task) => {
 			const failedDependency = (task.dependsOn ?? []).find((dep) => byName.get(dep)?.status !== "completed");
 			if (failedDependency) {
-				return { name: task.name, agent: task.agent, task: task.task, role: task.role, model: task.model, dependsOn: task.dependsOn, status: "skipped" as const, output: "", error: `dependency failed: ${failedDependency}`, usage: {} };
+				return skippedTask(task, `dependency did not complete: ${failedDependency}`);
+			}
+			if (task.when) {
+				try {
+					const passed = evaluateWhenExpression(task.when, (reference) => resolveWhenReference(reference, byName));
+					if (!passed) return skippedTask(task, `condition false: ${task.when}`);
+				} catch (error) {
+					const message = error instanceof WhenExpressionError ? error.message : error instanceof Error ? error.message : String(error);
+					return failedTask(task, `condition failed: ${message}`);
+				}
 			}
 			const runnable = task.role === "verifier" ? appendDependencyOutputs(task, byName) : task;
 			return runTask(runnable, options, trace);
@@ -91,6 +101,36 @@ function dagStatus(results: SubagentResult[]): "completed" | "failed" {
 		latestByName.set(result.name ?? `${result.agent}:${result.task}`, result);
 	}
 	return aggregateStatus([...latestByName.values()]);
+}
+
+function skippedTask(task: SubagentTask, error: string): SubagentResult {
+	return { name: task.name, agent: task.agent, task: task.task, role: task.role, model: task.model, dependsOn: task.dependsOn, status: "skipped", output: "", error, usage: {} };
+}
+
+function failedTask(task: SubagentTask, error: string): SubagentResult {
+	return { name: task.name, agent: task.agent, task: task.task, role: task.role, model: task.model, dependsOn: task.dependsOn, status: "failed", output: "", error, usage: {} };
+}
+
+function resolveWhenReference(reference: WhenPlaceholderReference, byName: Map<string, SubagentResult>): unknown {
+	const result = byName.get(reference.task);
+	if (!result) throw new WhenExpressionError(`task ${reference.task} has not completed yet`);
+	if (result.status !== "completed") throw new WhenExpressionError(`task ${reference.task} is ${result.status}; cannot read output`);
+	let value: unknown;
+	try {
+		value = JSON.parse(result.output);
+	} catch (error) {
+		throw new WhenExpressionError(`task ${reference.task} output is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	if (reference.path.length === 0) return value;
+	for (let index = 0; index < reference.path.length; index++) {
+		const segment = reference.path[index];
+		if (value === null || (typeof value !== "object" && !Array.isArray(value))) {
+			throw new WhenExpressionError(`task ${reference.task} output is missing path ${reference.path.join(".")}`);
+		}
+		if (!(segment in value)) throw new WhenExpressionError(`task ${reference.task} output is missing path ${reference.path.join(".")}`);
+		value = (value as Record<string, unknown>)[segment];
+	}
+	return value;
 }
 
 function appendDependencyOutputs<T extends { task: string; dependsOn?: string[] }>(task: T, byName: Map<string, SubagentResult>): T {

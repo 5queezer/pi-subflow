@@ -54,7 +54,7 @@ function retryAttempts(task: RunnerInput, requestedAttempts: number): number {
 }
 
 export function aggregateStatus(results: SubagentResult[]): "completed" | "failed" {
-	return results.every((result) => result.status === "completed") ? "completed" : "failed";
+	return results.every((result) => result.status === "completed" || result.status === "skipped") ? "completed" : "failed";
 }
 
 export function usageTotals(results: SubagentResult[]): Required<UsageStats> {

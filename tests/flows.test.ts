@@ -92,6 +92,168 @@ test("runDag executes dependencies before verifier and injects dependency output
 	assert.deepEqual(result.results[2].dependsOn, ["front", "back"]);
 });
 
+test("runDag skips a task when its when condition is false", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => name === "triage" ? JSON.stringify({ score: 0.2 }) : "ran",
+	});
+
+	const result = await runDag(
+		{
+			tasks: [
+				{ name: "triage", agent: "mock", task: "triage" },
+				{ name: "analyze", agent: "mock", dependsOn: ["triage"], when: "${triage.output.score} > 0.7", task: "analyze" },
+			],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.equal(result.results[1].status, "skipped");
+	assert.equal(result.results[1].error, "condition false: ${triage.output.score} > 0.7");
+	assert.equal(runner.calls.length, 1);
+});
+
+test("runDag runs a task when its when condition is true", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => name === "triage" ? JSON.stringify({ score: 0.9 }) : "ran",
+	});
+
+	const result = await runDag(
+		{
+			tasks: [
+				{ name: "triage", agent: "mock", task: "triage" },
+				{ name: "analyze", agent: "mock", dependsOn: ["triage"], when: "${triage.output.score} > 0.7", task: "analyze" },
+			],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.equal(result.results[1].status, "completed");
+	assert.equal(runner.calls.length, 2);
+});
+
+test("runDag fails validation when a when expression references a missing task", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async () => "ran",
+	});
+
+	await assert.rejects(
+		runDag(
+			{
+				tasks: [
+					{ name: "triage", agent: "mock", task: "triage" },
+					{ name: "analyze", agent: "mock", dependsOn: ["triage"], when: "${missing.output.score} > 0.7", task: "analyze" },
+				],
+			},
+			{ runner },
+		),
+		/task analyze when references missing task missing/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
+test("runDag fails validation when a when expression references a non-dependency", async () => {
+	const runner = new MockSubagentRunner({ mock: async () => "ran" });
+
+	await assert.rejects(
+		runDag(
+			{
+				tasks: [
+					{ name: "triage", agent: "mock", task: "triage" },
+					{ name: "analyze", agent: "mock", when: "${triage.output.score} > 0.7", task: "analyze" },
+				],
+			},
+			{ runner },
+		),
+		/task analyze when references task triage but does not depend on it/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
+test("runDag fails a conditional task when dependency output is not JSON", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => name === "triage" ? "not json" : "ran",
+	});
+
+	const result = await runDag(
+		{
+			tasks: [
+				{ name: "triage", agent: "mock", task: "triage" },
+				{ name: "analyze", agent: "mock", dependsOn: ["triage"], when: "${triage.output.score} > 0.7", task: "analyze" },
+			],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "failed");
+	assert.equal(result.results[1].status, "failed");
+	assert.match(result.results[1].error ?? "", /condition failed: task triage output is not valid JSON/);
+	assert.equal(runner.calls.length, 1);
+});
+
+test("runDag fails a conditional task when dependency output path is missing", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => name === "triage" ? JSON.stringify({ other: 1 }) : "ran",
+	});
+
+	const result = await runDag(
+		{
+			tasks: [
+				{ name: "triage", agent: "mock", task: "triage" },
+				{ name: "analyze", agent: "mock", dependsOn: ["triage"], when: "${triage.output.score} > 0.7", task: "analyze" },
+			],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "failed");
+	assert.equal(result.results[1].status, "failed");
+	assert.match(result.results[1].error ?? "", /condition failed: task triage output is missing path score/);
+	assert.equal(runner.calls.length, 1);
+});
+
+test("runDag supports boolean logic, strings, parentheses, and negation in when expressions", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => name === "triage" ? JSON.stringify({ pass: true, label: "go" }) : "ran",
+	});
+
+	const result = await runDag(
+		{
+			tasks: [
+				{ name: "triage", agent: "mock", task: "triage" },
+				{ name: "analyze", agent: "mock", dependsOn: ["triage"], when: "(${triage.output.pass} == true && ${triage.output.label} == 'go') || !false", task: "analyze" },
+			],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.equal(result.results[1].status, "completed");
+	assert.equal(runner.calls.length, 2);
+});
+
+test("runDag fails a conditional task when comparing non-primitive output", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => name === "triage" ? JSON.stringify({ score: { nested: true } }) : "ran",
+	});
+
+	const result = await runDag(
+		{
+			tasks: [
+				{ name: "triage", agent: "mock", task: "triage" },
+				{ name: "analyze", agent: "mock", dependsOn: ["triage"], when: "${triage.output.score} == true", task: "analyze" },
+			],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "failed");
+	assert.equal(result.results[1].status, "failed");
+	assert.match(result.results[1].error ?? "", /comparison operands must be strings, numbers, or booleans/);
+	assert.equal(runner.calls.length, 1);
+});
+
 test("validateDagTasks normalizes verifier fan-in before execution", () => {
 	const normalized = validateDagTasks([
 		task("front", "frontend"),

@@ -17,6 +17,7 @@ export interface SubagentTask {
 	task: string;
 	cwd?: string;
 	dependsOn?: string[];
+	when?: string;
 	role?: TaskRole;
 	authority?: "read_only" | "internal_mutation" | "external_side_effect";
 	tools?: string[];

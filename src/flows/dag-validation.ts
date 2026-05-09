@@ -1,10 +1,11 @@
 import { namedTask } from "../execution.js";
+import { collectWhenTaskReferences, WhenExpressionError } from "./dag-when.js";
 import type { SubagentTask } from "../types.js";
 
 export type NormalizedDagTask = SubagentTask & { name: string; dependsOn: string[] };
 
 export interface DagValidationIssue {
-	code: "duplicate_name" | "missing_dependency" | "self_dependency" | "cycle";
+	code: "duplicate_name" | "missing_dependency" | "self_dependency" | "cycle" | "invalid_when" | "missing_when_task" | "when_task_not_dependency";
 	message: string;
 	task?: string;
 	dependency?: string;
@@ -39,6 +40,24 @@ export function validateDagTasks(tasks: SubagentTask[]): DagValidationResult {
 				issues.push({ code: "self_dependency", message: `task ${task.name} cannot depend on itself`, task: task.name, dependency });
 			} else if (!taskNames.has(dependency)) {
 				issues.push({ code: "missing_dependency", message: `task ${task.name} depends on missing task ${dependency}`, task: task.name, dependency });
+			}
+		}
+	}
+	for (const task of tasksWithDependsOn) {
+		if (!task.when) continue;
+		let references: string[];
+		try {
+			references = collectWhenTaskReferences(task.when);
+		} catch (error) {
+			const message = error instanceof WhenExpressionError ? error.message : error instanceof Error ? error.message : String(error);
+			issues.push({ code: "invalid_when", message: `task ${task.name} has invalid when expression: ${message}`, task: task.name });
+			continue;
+		}
+		for (const dependency of new Set(references)) {
+			if (!taskNames.has(dependency)) {
+				issues.push({ code: "missing_when_task", message: `task ${task.name} when references missing task ${dependency}`, task: task.name, dependency });
+			} else if (!task.dependsOn.includes(dependency)) {
+				issues.push({ code: "when_task_not_dependency", message: `task ${task.name} when references task ${dependency} but does not depend on it`, task: task.name, dependency });
 			}
 		}
 	}

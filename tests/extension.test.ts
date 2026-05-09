@@ -84,6 +84,43 @@ final-verdict:
 	assert.match(runner.calls[2].task, /Dependency outputs/);
 });
 
+test("subflow extension parses DAG YAML when conditions into task objects", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const calls: RunnerInput[] = [];
+	const runner: SubagentRunner = {
+		async run(input: RunnerInput): Promise<SubagentResult> {
+			calls.push({ ...input });
+			return {
+				name: input.name,
+				agent: input.agent,
+				task: input.task,
+				status: "completed",
+				output: input.name === "triage" ? JSON.stringify({ score: 0.9 }) : "ran",
+				usage: {},
+			};
+		},
+	};
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	await pi.tool.execute("call-1", {
+		dagYaml: `
+triage:
+  agent: reviewer
+  task: triage
+  when: "true"
+
+analyze:
+  agent: reviewer
+  dependsOn: [triage]
+  when: "\${triage.output.score} > 0.7"
+  task: analyze
+`,
+	}, undefined, undefined, fakeCtx(cwd));
+
+	assert.equal(calls[1].when, "${triage.output.score} > 0.7");
+});
+
 test("subflow extension accepts YAML block sequences in DAG shorthand", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const runner = new RecordingRunner();
