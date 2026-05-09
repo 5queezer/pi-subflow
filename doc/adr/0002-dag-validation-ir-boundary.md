@@ -51,4 +51,4 @@ Tradeoffs:
 
 ## Follow-up
 
-Execute the DAG Validation IR implementation plan at `docs/superpowers/plans/2026-05-09-dag-validation-ir.md` using TDD. Keep `README.md` and this ADR synchronized if the validation boundary becomes public API or if a graph library is added.
+Execute the DAG Validation IR implementation plan at `doc/superpowers/plans/2026-05-09-dag-validation-ir.md` using TDD. Keep `README.md` and this ADR synchronized if the validation boundary becomes public API or if a graph library is added.

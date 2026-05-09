@@ -4,7 +4,7 @@ import { cp, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
 const args = process.argv.slice(2);
-const sourceDir = resolve("docs/wiki");
+const sourceDir = resolve("doc/wiki");
 let wikiDir = process.env.WIKI_DIR ? resolve(process.env.WIKI_DIR) : resolve("..", "pi-subflow.wiki");
 let push = false;
 
@@ -52,6 +52,6 @@ console.log(`Synced ${sourceEntries.length} wiki pages from ${sourceDir} to ${wi
 
 if (push) {
 	execFileSync("git", ["-C", wikiDir, "add", "-A"], { stdio: "inherit" });
-	execFileSync("git", ["-C", wikiDir, "commit", "-m", "Sync wiki from repository docs"], { stdio: "inherit" });
+	execFileSync("git", ["-C", wikiDir, "commit", "-m", "Sync wiki from repository doc"], { stdio: "inherit" });
 	execFileSync("git", ["-C", wikiDir, "push"], { stdio: "inherit" });
 }

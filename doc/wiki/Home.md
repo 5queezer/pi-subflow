@@ -4,7 +4,7 @@ Detailed documentation for [`pi-subflow`](https://github.com/5queezer/pi-subflow
 
 Start with the repository [README](https://github.com/5queezer/pi-subflow#readme) for the concise overview, then use these pages for details.
 
-These wiki pages are sourced from `docs/wiki/` in the main repository. Edit them there, review them with code changes, and publish with `npm run wiki:sync` or `npm run wiki:sync:push`; do not edit the GitHub Wiki directly.
+These wiki pages are sourced from `doc/wiki/` in the main repository. Edit them there, review them with code changes, and publish with `npm run wiki:sync` or `npm run wiki:sync:push`; do not edit the GitHub Wiki directly.
 
 ## Pages
 

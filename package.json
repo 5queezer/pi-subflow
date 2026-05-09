@@ -10,7 +10,7 @@
 		}
 	},
 	"directories": {
-		"doc": "docs",
+		"doc": "doc",
 		"test": "tests"
 	},
 	"scripts": {

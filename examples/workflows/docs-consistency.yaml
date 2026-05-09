@@ -14,7 +14,7 @@ adr-review:
   agent: reviewer
   model: openai-codex/gpt-5.4-mini
   task: |
-    Review docs/adr for decisions that should match the requested behavior or API.
+    Review doc/adr for decisions that should match the requested behavior or API.
     Flag contradictions, missing rationale, or stale architecture notes.
   tools: [read, bash]
   thinking: low
