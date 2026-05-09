@@ -132,6 +132,32 @@ test("runDag rejects duplicate task names before execution", async () => {
 	assert.equal(runner.calls.length, 0);
 });
 
+test("runDag rejects missing dependencies with the exact task and dependency", async () => {
+	const runner = new MockSubagentRunner({ mock: async ({ task }) => `done:${task}` });
+
+	await assert.rejects(
+		runDag(
+			{ tasks: [{ ...task("verify"), dependsOn: ["missing"] }] },
+			{ runner },
+		),
+		/task verify depends on missing task missing/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
+test("runDag rejects self-dependencies with the exact task name", async () => {
+	const runner = new MockSubagentRunner({ mock: async ({ task }) => `done:${task}` });
+
+	await assert.rejects(
+		runDag(
+			{ tasks: [{ ...task("loop"), dependsOn: ["loop"] }] },
+			{ runner },
+		),
+		/task loop cannot depend on itself/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
 test("runDag validates expected markdown sections", async () => {
 	const runner = new MockSubagentRunner({ mock: async () => "## Summary\nOnly summary" });
 

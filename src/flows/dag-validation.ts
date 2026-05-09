@@ -28,11 +28,22 @@ export function validateDagTasks(tasks: SubagentTask[]): DagValidationResult {
 		seen.add(task.name);
 	}
 	const nonVerifierNames = named.filter((task) => task.role !== "verifier").map((task) => task.name);
+	const tasksWithDependsOn = named.map((task) => ({
+		...task,
+		dependsOn: task.role === "verifier" && task.dependsOn === undefined ? nonVerifierNames : (task.dependsOn ?? []),
+	}));
+	const taskNames = new Set(tasksWithDependsOn.map((task) => task.name));
+	for (const task of tasksWithDependsOn) {
+		for (const dependency of task.dependsOn) {
+			if (dependency === task.name) {
+				issues.push({ code: "self_dependency", message: `task ${task.name} cannot depend on itself`, task: task.name, dependency });
+			} else if (!taskNames.has(dependency)) {
+				issues.push({ code: "missing_dependency", message: `task ${task.name} depends on missing task ${dependency}`, task: task.name, dependency });
+			}
+		}
+	}
 	return {
-		tasks: named.map((task) => ({
-			...task,
-			dependsOn: task.role === "verifier" && task.dependsOn === undefined ? nonVerifierNames : (task.dependsOn ?? []),
-		})),
+		tasks: tasksWithDependsOn,
 		issues,
 	};
 }
