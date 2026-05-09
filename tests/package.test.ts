@@ -22,6 +22,23 @@ test("package.json configures Husky pre-commit verification", async () => {
 	assert.match(hook, /npm run build && npm test/);
 });
 
+test("wiki pages are sourced from docs and have sync scripts", async () => {
+	const pkg = JSON.parse(await readFile("package.json", "utf8"));
+	const readme = await readFile("README.md", "utf8");
+	const agents = await readFile("AGENTS.md", "utf8");
+	const wikiHome = await readFile("docs/wiki/Home.md", "utf8");
+	const syncScript = await readFile("scripts/sync-wiki.mjs", "utf8");
+
+	assert.equal(pkg.scripts["wiki:sync"], "node scripts/sync-wiki.mjs");
+	assert.equal(pkg.scripts["wiki:sync:push"], "node scripts/sync-wiki.mjs --push");
+	assert.match(readme, /docs\/wiki/);
+	assert.match(readme, /npm run wiki:sync/);
+	assert.match(agents, /docs\/wiki/);
+	assert.match(wikiHome, /sourced from `docs\/wiki\/`/);
+	assert.match(syncScript, /docs\/wiki/);
+	assert.match(syncScript, /--wiki-dir/);
+});
+
 test("docs describe DAG validation boundary and future workflow IR", async () => {
 	const readme = await readFile("README.md", "utf8");
 	const adr = await readFile("docs/adr/0001-pocketflow-orchestration-core.md", "utf8");

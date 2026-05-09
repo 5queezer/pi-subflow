@@ -22,7 +22,7 @@ Use it when work benefits from independent research/review streams, staged hando
 ## Quick start
 
 ```bash
-git clone <repo-url> pi-subflow
+git clone git@github.com:5queezer/pi-subflow.git pi-subflow
 cd pi-subflow
 npm install
 npm run build
@@ -121,7 +121,7 @@ npm run build && npm test
 
 ## Documentation
 
-- [GitHub Wiki](https://github.com/5queezer/pi-subflow/wiki) — detailed usage, TypeScript API, configuration, policy, architecture, roadmap notes for conditional branches, nested workflows, dynamic dependency graphs, and troubleshooting
+- [GitHub Wiki](https://github.com/5queezer/pi-subflow/wiki) — detailed usage, TypeScript API, configuration, policy, architecture, roadmap notes for conditional branches, nested workflows, dynamic dependency graphs, and troubleshooting. Source pages live in [`docs/wiki/`](docs/wiki/) and are published with `npm run wiki:sync`.
 - [`schemas/subflow-dag.schema.json`](schemas/subflow-dag.schema.json) — YAML schema for workflow templates
 - [`docs/adr/`](docs/adr/) — architecture decision records
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution workflow
