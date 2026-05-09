@@ -1,31 +1,13 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { test } from "node:test";
-import { PiSdkRunner, PiSubprocessRunner } from "../src/index.js";
+import { PiSdkRunner } from "../src/index.js";
 import type { RunnerInput, SubagentResult } from "../src/index.js";
 
-test("PiSubprocessRunner passes model, thinking, tools, cwd, and agent context to the Pi CLI", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "pi-subprocess-"));
-	const argsPath = join(dir, "args.json");
-	const fakePi = join(dir, "fake-pi.mjs");
-	await writeFile(fakePi, `#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(argsPath)}, JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd() }));\nconsole.log(JSON.stringify({ message: { content: [{ type: "text", text: "ok" }] } }));\n`);
-	await chmod(fakePi, 0o755);
-	const runner = new PiSubprocessRunner(fakePi);
+test("public API is SDK-only and does not export PiSubprocessRunner", async () => {
+	const api = await import("../src/index.js");
 
-	const result = await runner.run({ name: "a", agent: "worker", task: "inspect", cwd: dir, tools: ["read", "bash"], model: "openrouter/openrouter/free", thinking: "low" });
-
-	const captured = JSON.parse(await readFile(argsPath, "utf8"));
-	assert.equal(result.status, "completed");
-	assert.equal(captured.cwd, dir);
-	assert(captured.args.includes("--model"));
-	assert(captured.args.includes("openrouter/openrouter/free"));
-	assert(captured.args.includes("--thinking"));
-	assert(captured.args.includes("low"));
-	assert(captured.args.includes("--tools"));
-	assert(captured.args.includes("read,bash"));
-	assert(captured.args.some((arg: string) => arg.includes("Subagent: worker")));
+	assert.equal("PiSdkRunner" in api, true);
+	assert.equal("PiSubprocessRunner" in api, false);
 });
 
 test("PiSdkRunner creates an isolated SDK session for each subagent run", async () => {

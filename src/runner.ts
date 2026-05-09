@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { AuthStorage, createAgentSession, ModelRegistry, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
 import type { AgentDefinition } from "./agents.js";
@@ -138,83 +137,12 @@ export class PiSdkRunner implements SubagentRunner {
 	}
 }
 
-export class PiSubprocessRunner implements SubagentRunner {
-	constructor(private readonly piCommand = "pi") {}
-
-	async run(input: RunnerInput, signal?: AbortSignal): Promise<SubagentResult> {
-		return new Promise((resolve) => {
-			const args = ["--mode", "json", "-p", "--no-session"];
-			if (input.model) args.push("--model", input.model);
-			if (input.thinking && input.thinking !== "off") args.push("--thinking", input.thinking);
-			if (input.tools?.length) args.push("--tools", input.tools.join(","));
-			args.push(defaultSubprocessPrompt(input));
-			const proc = spawn(this.piCommand, args, {
-				cwd: input.cwd,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			let stdout = "";
-			let stderr = "";
-			let settled = false;
-			let abort: (() => void) | undefined;
-			const finish = (result: SubagentResult) => {
-				if (settled) return;
-				settled = true;
-				if (signal && abort) signal.removeEventListener("abort", abort);
-				resolve(result);
-			};
-			proc.stdout.on("data", (chunk) => {
-				stdout += chunk.toString();
-			});
-			proc.stderr.on("data", (chunk) => {
-				stderr += chunk.toString();
-			});
-			proc.on("error", (error) => {
-				finish(failed(input, error.message));
-			});
-			proc.on("close", (code) => {
-				if (code === 0) finish(completed(input, extractFinalText(stdout)));
-				else finish(failed(input, stderr || stdout || `pi exited with code ${code}`));
-			});
-			if (signal) {
-				abort = () => proc.kill("SIGTERM");
-				if (signal.aborted) abort();
-				else signal.addEventListener("abort", abort, { once: true });
-			}
-		});
-	}
-}
-
 function completed(input: RunnerInput, output: string): SubagentResult {
 	return { name: input.name, agent: input.agent, task: input.task, status: "completed", output, usage: {} };
 }
 
 function failed(input: RunnerInput, error: string): SubagentResult {
 	return { name: input.name, agent: input.agent, task: input.task, status: "failed", output: "", error, usage: {} };
-}
-
-function defaultSubprocessPrompt(input: RunnerInput): string {
-	const parts = [`Subagent: ${input.agent}`];
-	if (input.tools?.length) parts.push(`Allowed tools: ${input.tools.join(", ")}`);
-	parts.push(`Task:\n${input.task}`);
-	return parts.join("\n\n");
-}
-
-function extractFinalText(stdout: string): string {
-	let lastText = "";
-	for (const line of stdout.split("\n")) {
-		if (!line.trim()) continue;
-		try {
-			const event = JSON.parse(line);
-			const content = event?.message?.content;
-			if (Array.isArray(content)) {
-				const text = content.filter((part) => part?.type === "text").map((part) => part.text).join("\n");
-				if (text) lastText = text;
-			}
-		} catch {
-			lastText = line;
-		}
-	}
-	return lastText;
 }
 
 function extractSdkResult(input: RunnerInput, session: MinimalAgentSession): SubagentResult {

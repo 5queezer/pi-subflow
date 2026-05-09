@@ -16,7 +16,7 @@ export { appendRunHistory } from "./history.js";
 export type { RunHistoryEntry } from "./history.js";
 export { validateExecutionPolicy } from "./policy.js";
 export type { ExecutionPolicyInput } from "./policy.js";
-export { MockSubagentRunner, PiSdkRunner, PiSubprocessRunner } from "./runner.js";
+export { MockSubagentRunner, PiSdkRunner } from "./runner.js";
 export type { PiSdkRunnerOptions } from "./runner.js";
 export { validateOutput, OutputValidationError } from "./validation.js";
 export { runSingle } from "./flows/single.js";

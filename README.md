@@ -2,11 +2,11 @@
 
 PocketFlow-powered prototype for Pi subagent orchestration.
 
-`pi-subflow` explores a cleaner architecture for the Pi Subagent Extension: PocketFlow models the workflow layer, while Pi-specific execution is isolated behind a `SubagentRunner` interface. The preferred real Pi adapter is SDK-based (`PiSdkRunner`); subprocess execution remains available as an isolation/compatibility fallback.
+`pi-subflow` explores a cleaner architecture for the Pi Subagent Extension: PocketFlow models the workflow layer, while Pi-specific execution is isolated behind a `SubagentRunner` interface. Real Pi execution is SDK-based (`PiSdkRunner`) and creates an isolated in-memory Pi session per subagent run.
 
 ## Why
 
-The existing Pi subagent extension mixes tool registration, subprocess management, policy checks, DAG execution, validation, and rendering in one extension. This project prototypes a reusable orchestration core that can later be embedded back into a Pi extension.
+The existing Pi subagent extension mixes tool registration, agent execution, policy checks, DAG execution, validation, and rendering in one extension. This project prototypes a reusable orchestration core that can later be embedded back into a Pi extension.
 
 ## Features in this MVP
 
@@ -20,7 +20,6 @@ The existing Pi subagent extension mixes tool registration, subprocess managemen
 - Retry, timeout, and aggregate budget helpers
 - Mock runner for deterministic tests
 - Pi SDK runner that creates an isolated in-memory Pi session per subagent run, can inject discovered agent instructions into the task prompt, fails fast on unknown explicit models, and forwards cwd/tools/model/thinking into SDK session creation
-- Pi subprocess runner scaffold for strict process isolation / CLI compatibility, including cwd/model/thinking/tools forwarding where possible
 - Agent markdown discovery for user/project scopes
 - Project-agent and external-side-effect policy checks with risk validation before UI side-effect confirmation
 - JSONL run-history append helper
@@ -48,7 +47,7 @@ Primary exports:
 - `discoverAgents` for loading markdown agent definitions from user and project directories.
 - `validateExecutionPolicy` for project-local agent confirmation and external-side-effect checks.
 - `appendRunHistory` for JSONL run history persistence.
-- `MockSubagentRunner`, `PiSdkRunner`, and `PiSubprocessRunner` for pluggable subagent execution.
+- `MockSubagentRunner` and `PiSdkRunner` for pluggable subagent execution.
 - `runSingle`, `runChain`, `runParallel`, and `runDag` for workflow execution.
 - `registerPiSubflowExtension` / default `piSubflowExtension` for registering the orchestration core as a Pi extension tool.
 
@@ -72,8 +71,7 @@ When an agent definition declares `tools`, `model`, or `thinking`, the extension
 
 ## Runner choices
 
-- Use `PiSdkRunner` for normal in-process Pi execution. It creates a fresh `createAgentSession()` session with `SessionManager.inMemory()` for each subagent run, preserving context isolation without spawning a full `pi` process. Pass discovered agent definitions via `agentDefinitions` when you want the runner to include the selected agent's description, tools, model/thinking hints, and markdown instructions in the task prompt. When invoked through the extension, effective task inputs include agent-defined tools/model/thinking before reaching the runner. Explicit `model` values are resolved through the Pi model registry and fail fast if unknown instead of silently falling back to the default model. Tests can inject `modelRegistry` and `createAgentSession` through `PiSdkRunnerOptions`.
-- Use `PiSubprocessRunner` when strict process isolation, CLI behavior parity, or environment separation is more important than spawn overhead. It forwards task `cwd`, `model`, `thinking`, and `tools` to the Pi CLI where possible.
+- Use `PiSdkRunner` for normal in-process Pi execution. It creates a fresh `createAgentSession()` session with `SessionManager.inMemory()` for each subagent run, preserving context isolation without spawning a full `pi` process. Pass discovered agent definitions via `agentDefinitions` when you want the runner to include the selected agent's description, tools, model/thinking hints, and markdown instructions in the task prompt. When invoked through the extension, effective task inputs include agent-defined tools/model/thinking before reaching the runner. Explicit task `tools` values are passed to the SDK session as the active tool subset; omit `tools` to let Pi create its default tool set for that subagent cwd. Explicit `model` values are resolved through the Pi model registry and fail fast if unknown instead of silently falling back to the default model. Tests can inject `modelRegistry` and `createAgentSession` through `PiSdkRunnerOptions`.
 - Use `MockSubagentRunner` for deterministic tests and local orchestration development.
 
 ## Example

@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-`pi-subflow` is a sibling prototype for recreating the Pi Subagent Extension's workflow layer with clearer boundaries. The existing extension combines Pi tool registration, agent discovery, subprocess spawning, policy checks, validation, tracing, and workflow orchestration in one implementation.
+`pi-subflow` is a sibling prototype for recreating the Pi Subagent Extension's workflow layer with clearer boundaries. The existing extension combines Pi tool registration, agent discovery, SDK-based agent execution, policy checks, validation, tracing, and workflow orchestration in one implementation.
 
 We want a design that keeps Pi-specific integration replaceable while making the orchestration behavior easier to test and evolve.
 
@@ -17,8 +17,7 @@ Use `pocketflow` as the workflow/orchestration dependency for `pi-subflow`.
 The project will keep execution behind a `SubagentRunner` interface:
 
 - `MockSubagentRunner` supports deterministic tests and local development.
-- `PiSdkRunner` is the preferred real Pi adapter. It creates a fresh SDK `createAgentSession()` with `SessionManager.inMemory()` per subagent run, preserving subagent context isolation without spawning a full `pi` process. When supplied with discovered agent definitions, it includes the selected agent's description, tools, model/thinking hints, and markdown instructions in the subagent task prompt. Explicit model selections are resolved through the Pi model registry and fail fast if unknown, and tests can inject `modelRegistry` / `createAgentSession` seams.
-- `PiSubprocessRunner` remains the adapter boundary for strict process isolation and `pi --mode json -p --no-session` CLI compatibility. It forwards task cwd/model/thinking/tools to the CLI where possible and cleans up abort listeners when runs settle.
+- `PiSdkRunner` is the real Pi adapter. It creates a fresh SDK `createAgentSession()` with `SessionManager.inMemory()` per subagent run, preserving subagent context isolation without spawning a full `pi` process. When supplied with discovered agent definitions, it includes the selected agent's description, tools, model/thinking hints, and markdown instructions in the subagent task prompt. Explicit task `tools` values are passed to the SDK session as the active tool subset; omitted tools let Pi create its default tool set for the subagent cwd. Explicit model selections are resolved through the Pi model registry and fail fast if unknown, and tests can inject `modelRegistry` / `createAgentSession` seams.
 
 Flow modules expose simple TypeScript functions for consumers:
 
@@ -44,7 +43,7 @@ Positive:
 
 - Workflow logic remains separated from Pi extension registration and TUI concerns, while a thin extension adapter now makes the core usable from Pi with progress, readable final summaries, and history browsing UI.
 - Single, chain, parallel, DAG, verifier, retry, timeout, validation, budget, cancellation, and trace behavior can be tested without launching Pi subprocesses.
-- SDK-based execution avoids subprocess overhead for normal operation while keeping isolated per-subagent sessions and can still honor named agent instructions through the `agentDefinitions` runner option.
+- SDK-based execution avoids subprocess overhead while keeping isolated per-subagent sessions and can still honor named agent instructions through the `agentDefinitions` runner option.
 - The design leaves room for future adaptive routing and verifier-repair loops.
 
 Tradeoffs:
