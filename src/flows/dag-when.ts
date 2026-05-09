@@ -308,7 +308,7 @@ class Parser {
 }
 
 function parsePlaceholderReference(raw: string): WhenPlaceholderReference {
-	const match = /^([A-Za-z0-9_-]+)\.output(?:\.([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*))?$/.exec(raw);
+	const match = /^([A-Za-z0-9_.-]+)\.output(?:\.([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*))?$/.exec(raw);
 	if (!match) throw new WhenExpressionError(`invalid placeholder: ${raw}`);
 	const path = match[2]?.split(".") ?? [];
 	return { task: match[1], path };

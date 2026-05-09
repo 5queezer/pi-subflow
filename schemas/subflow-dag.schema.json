@@ -44,17 +44,26 @@
         }
       },
       "not": {
-        "required": ["tasks", "dagYaml"]
+        "required": [
+          "tasks",
+          "dagYaml"
+        ]
       },
       "anyOf": [
         {
-          "required": ["tasks"]
+          "required": [
+            "tasks"
+          ]
         },
         {
-          "required": ["dagYaml"]
+          "required": [
+            "dagYaml"
+          ]
         },
         {
-          "required": ["uses"]
+          "required": [
+            "uses"
+          ]
         }
       ]
     },
@@ -75,7 +84,10 @@
           "minLength": 1
         }
       },
-      "required": ["maxIterations", "body"]
+      "required": [
+        "maxIterations",
+        "body"
+      ]
     },
     "task": {
       "type": "object",
@@ -102,6 +114,9 @@
         "cwd": {
           "type": "string"
         },
+        "needs": {
+          "$ref": "#/$defs/stringArray"
+        },
         "dependsOn": {
           "$ref": "#/$defs/stringArray"
         },
@@ -109,10 +124,17 @@
           "type": "string"
         },
         "role": {
-          "enum": ["worker", "verifier"]
+          "enum": [
+            "worker",
+            "verifier"
+          ]
         },
         "authority": {
-          "enum": ["read_only", "internal_mutation", "external_side_effect"]
+          "enum": [
+            "read_only",
+            "internal_mutation",
+            "external_side_effect"
+          ]
         },
         "tools": {
           "$ref": "#/$defs/stringArray"
@@ -121,7 +143,14 @@
           "type": "string"
         },
         "thinking": {
-          "enum": ["off", "minimal", "low", "medium", "high", "xhigh"]
+          "enum": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
         },
         "expectedSections": {
           "$ref": "#/$defs/stringArray"
@@ -137,17 +166,27 @@
         }
       },
       "not": {
-        "required": ["workflow", "loop"]
+        "required": [
+          "needs",
+          "dependsOn"
+        ]
       },
       "anyOf": [
         {
-          "required": ["agent", "task"]
+          "required": [
+            "agent",
+            "task"
+          ]
         },
         {
-          "required": ["workflow"]
+          "required": [
+            "workflow"
+          ]
         },
         {
-          "required": ["loop"]
+          "required": [
+            "loop"
+          ]
         }
       ]
     }

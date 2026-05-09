@@ -152,7 +152,7 @@ function expandDagTask(task: SubagentTask & { name: string }, inheritedDependsOn
 	}
 	if (!task.workflow) {
 		if (!task.agent || !task.task) throw new Error(`task ${taskName} requires agent and task`);
-		return [{ ...task, name: taskName, agent: task.agent, task: task.task, dependsOn: localDependsOn }];
+		return [{ ...task, name: taskName, agent: task.agent, task: task.task, dependsOn: localDependsOn, when: qualifyWhenExpression(task.when, prefix) }];
 	}
 	const childTasks = normalizeWorkflowTasks(task.workflow.tasks, taskName);
 	if (childTasks.length === 0) throw new Error(`workflow task ${taskName} requires nested tasks`);
@@ -196,6 +196,15 @@ function loopBodyTaskNames(tasks: SubagentTask[] | Record<string, SubagentTask>)
 
 function qualifyName(prefix: string, name: string): string {
 	return prefix ? `${prefix}.${name}` : name;
+}
+
+function qualifyWhenExpression(source: string | undefined, prefix: string): string | undefined {
+	if (!source || !prefix) return source;
+	return source.replace(/\$\{([^}]+)\}/g, (placeholder, raw: string) => {
+		const match = /^([A-Za-z0-9_.-]+)(\.output(?:\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)?)$/.exec(raw.trim());
+		if (!match || match[1].includes(".")) return placeholder;
+		return `\${${qualifyName(prefix, match[1])}${match[2]}}`;
+	});
 }
 
 function getTerminalNodeNames(tasks: NormalizedDagTask[]): string[] {

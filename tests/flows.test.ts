@@ -154,6 +154,32 @@ test("runDag flows parent dependencies into first nested tasks and exposes a sum
 	assert.match(runner.calls[2].task, /done:review\.api:review api/);
 });
 
+
+test("runDag evaluates when expressions inside nested workflow children against namespaced dependencies", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => name.endsWith(".triage") ? JSON.stringify({ score: 0.9 }) : "ran",
+	});
+
+	const result = await runDag(
+		{
+			tasks: [{
+				name: "review",
+				workflow: {
+					tasks: {
+						triage: { agent: "mock", task: "triage" },
+						analyze: { agent: "mock", dependsOn: ["triage"], when: "${triage.output.score} > 0.7", task: "analyze" },
+					},
+				},
+			}],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.equal(result.results.find((item) => item.name === "review.analyze")?.status, "completed");
+	assert.deepEqual(runner.calls.map((call) => call.name), ["review.triage", "review.analyze"]);
+});
+
 test("runDag executes bounded loops until the until expression becomes true", async () => {
 	const runner = new MockSubagentRunner({
 		mock: async ({ name }) => name.endsWith(".editor") ? JSON.stringify({ continue: false }) : "research",
