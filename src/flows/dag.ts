@@ -90,11 +90,20 @@ type NormalizedTask = SubagentTask & { name: string; dependsOn: string[] };
 
 function normalizeTasks(tasks: SubagentTask[]): NormalizedTask[] {
 	const named = tasks.map((task, index) => namedTask(task, index));
+	assertUniqueTaskNames(named);
 	const nonVerifierNames = named.filter((task) => task.role !== "verifier").map((task) => task.name);
 	return named.map((task) => ({
 		...task,
 		dependsOn: task.role === "verifier" && task.dependsOn === undefined ? nonVerifierNames : (task.dependsOn ?? []),
 	}));
+}
+
+function assertUniqueTaskNames(tasks: { name: string }[]): void {
+	const seen = new Set<string>();
+	for (const task of tasks) {
+		if (seen.has(task.name)) throw new Error(`duplicate DAG task name: ${task.name}`);
+		seen.add(task.name);
+	}
 }
 
 function planStages<T extends { name: string; dependsOn?: string[] }>(tasks: T[]): T[][] {

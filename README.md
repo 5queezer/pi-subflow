@@ -13,7 +13,7 @@ The existing Pi subagent extension mixes tool registration, agent execution, pol
 - Single subagent task execution
 - Sequential chains with `{previous}` handoff
 - Parallel fanout with bounded concurrency
-- DAG execution with dependency stages and structured dependency metadata on results
+- DAG execution with dependency stages, duplicate-name rejection, and structured dependency metadata on results
 - Verifier fan-in: verifier tasks without `dependsOn` depend on all non-verifier tasks
 - Dependency output injection for verifiers without parsing graph structure from task text
 - Markdown section / minimal JSON required-field validation

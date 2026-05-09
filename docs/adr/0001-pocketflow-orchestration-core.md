@@ -33,7 +33,7 @@ Supporting modules expose Pi-extension-adjacent capabilities without coupling th
 - `discoverAgents` loads markdown agent definitions from user and project directories; the extension applies agent-defined `tools`, `model`, and `thinking` to effective runner inputs unless a task explicitly overrides them. Explicit tools are checked against a runtime allowlist before SDK session creation. Extension-created tasks default to the active Pi cwd unless they set cwd explicitly.
 - `validateExecutionPolicy` enforces project-local confirmation and external-side-effect risk rules before UI side-effect confirmation prompts are shown. Mutating and external-side-effect tasks are not retried, even when retry budgets are configured.
 - `appendRunHistory` records JSONL run summaries.
-- DAG execution supports verifier repair and re-verification rounds. Task results carry structured `dependsOn` metadata so renderers and history views do not infer graph edges from injected prompt text.
+- DAG execution supports verifier repair and re-verification rounds. DAG task names must be unique, and task results carry structured `dependsOn` metadata so renderers and history views do not infer graph edges from injected prompt text.
 
 PocketFlow primitives may be used internally, but public APIs should remain stable and not leak PocketFlow-specific state unless there is a clear need.
 

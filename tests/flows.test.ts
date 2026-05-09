@@ -91,6 +91,19 @@ test("runDag executes dependencies before verifier and injects dependency output
 	assert.deepEqual(result.results[2].dependsOn, ["front", "back"]);
 });
 
+test("runDag rejects duplicate task names before execution", async () => {
+	const runner = new MockSubagentRunner({ mock: async ({ task }) => `done:${task}` });
+
+	await assert.rejects(
+		runDag(
+			{ tasks: [task("dup", "first"), task("dup", "second")] },
+			{ runner },
+		),
+		/duplicate DAG task name: dup/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
 test("runDag validates expected markdown sections", async () => {
 	const runner = new MockSubagentRunner({ mock: async () => "## Summary\nOnly summary" });
 
