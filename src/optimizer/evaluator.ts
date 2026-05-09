@@ -58,7 +58,7 @@ export async function evaluateOptimizerRun(input: EvaluateOptimizerRunInput): Pr
 	};
 }
 
-async function loadWorkflowTasks(input: EvaluateOptimizerRunInput): Promise<SubagentTask[]> {
+export async function loadWorkflowTasks(input: Pick<EvaluateOptimizerRunInput, "cwd" | "workflowPath" | "dagYaml">): Promise<SubagentTask[]> {
 	if (Boolean(input.workflowPath) === Boolean(input.dagYaml)) throw new Error("subflow_optimize requires exactly one of workflowPath or dagYaml");
 	if (input.dagYaml) return normalizeOptimizerDagYaml(input.dagYaml);
 	const workflowPath = await resolveWorkflowPath(input.cwd, input.workflowPath ?? "");

@@ -19,6 +19,7 @@ test("subflow extension exposes LLM-facing prompt guidance", () => {
 	const pi = fakePi();
 	registerPiSubflowExtension(pi);
 
+	assert.equal(pi.tool.name, "subflow");
 	assert.match(pi.tool.promptSnippet, /single, chain, parallel, DAG, conditional edges, bounded loops, and nested workflow/);
 	assert(pi.tool.promptGuidelines.some((line: string) => /Use subflow DAG mode/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /role: "verifier"/.test(line)));
@@ -27,6 +28,18 @@ test("subflow extension exposes LLM-facing prompt guidance", () => {
 	assert(pi.tool.promptGuidelines.some((line: string) => /workflow\.tasks/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /loop\.maxIterations/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /minimum tool subset/.test(line)));
+});
+
+test("subflow extension registers subflow_optimize with LLM-facing guidance", () => {
+	const pi = fakePi();
+	registerPiSubflowExtension(pi);
+	const tool = pi.tools.get("subflow_optimize");
+	assert(tool);
+
+	assert.equal(tool.name, "subflow_optimize");
+	assert.match(tool.promptSnippet, /dry-run optimizer/);
+	assert(tool.promptGuidelines.some((line: string) => /canonical.*\.pi\/subflow\/evals/.test(line)));
+	assert(tool.promptGuidelines.some((line: string) => /does not mutate/.test(line)));
 });
 
 test("subflow extension registers a Pi tool that runs a single task and appends history", async () => {
@@ -834,6 +847,61 @@ test("subflow extension does not register the experimental /subflow-runs UI", ()
 	assert.equal(pi.commands.has("subflow-runs"), false);
 });
 
+test("subflow_optimize runs a baseline dry-run and writes a report", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-opt-tool-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+	const tool = pi.tools.get("subflow_optimize");
+	assert(tool);
+
+	const result = await tool.execute("call-1", {
+		dagYaml: "review:\n  agent: worker\n  task: Review docs\n",
+		evalSet: {
+			inline: {
+				name: "inline-docs",
+				objective: { taskScore: 1, cost: 0, latency: 0, instability: 1, complexity: 0 },
+				scoring: { minRunsPerCase: 1, minUtilityDelta: 0.05, maxFailureRateRegression: 0 },
+				cases: [{ name: "one", input: "Check docs" }],
+			},
+		},
+	}, undefined, undefined, fakeCtx(cwd));
+
+	assert.equal(result.isError, false);
+	assert.match(result.content[0].text, /subflow_optimize dry-run report/);
+	assert.match(result.content[0].text, /Report artifact: .*\.pi\/subflow\/optimizer-reports\/opt-[a-z0-9]+\.json/);
+	const match = result.content[0].text.match(/Report artifact: (.*\.json)$/m);
+	assert(match);
+	assert.match(await readFile(match[1], "utf8"), /"evalSetName": "inline-docs"/);
+	assert.equal(runner.calls.length, 1);
+});
+
+test("subflow_optimize rejects disallowed candidate tools before running", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-opt-tool-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { allowedTools: ["read"], runnerFactory: () => runner });
+	const tool = pi.tools.get("subflow_optimize");
+	assert(tool);
+
+	await assert.rejects(
+		() => tool.execute("call-1", {
+			dagYaml: "review:\n  agent: worker\n  task: Review docs\n",
+			candidateDagYamls: ["review:\n  agent: worker\n  tools: [write]\n  task: Review docs\n"],
+			evalSet: {
+				inline: {
+					name: "inline-docs",
+					objective: { taskScore: 1, cost: 0, latency: 0, instability: 1, complexity: 0 },
+					scoring: { minRunsPerCase: 1, minUtilityDelta: 0.05, maxFailureRateRegression: 0 },
+					cases: [{ name: "one", input: "Check docs" }],
+				},
+			},
+		}, undefined, undefined, fakeCtx(cwd)),
+		/unknown or unavailable tool: write/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
 test("subflow extension rejects empty agent or task strings", async () => {
 	const pi = fakePi();
 	registerPiSubflowExtension(pi);
@@ -878,10 +946,11 @@ function fakeRenderContext() {
 }
 
 function fakePi() {
-	const state: { tool?: any; commands: Map<string, any>; handlers: Map<string, any[]>; messages: Array<{ message: any; options: any }> } = { commands: new Map(), handlers: new Map(), messages: [] };
+	const state: { tool?: any; tools: Map<string, any>; commands: Map<string, any>; handlers: Map<string, any[]>; messages: Array<{ message: any; options: any }> } = { tools: new Map(), commands: new Map(), handlers: new Map(), messages: [] };
 	return Object.assign(state, {
 		registerTool(tool: any) {
-			state.tool = tool;
+			state.tools.set(tool.name, tool);
+			if (tool.name === "subflow") state.tool = tool;
 		},
 		registerCommand(name: string, command: any) {
 			state.commands.set(name, command);

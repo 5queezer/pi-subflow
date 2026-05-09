@@ -9,6 +9,7 @@ import { appendRunHistory } from "./history.js";
 import { validateExecutionPolicy } from "./policy.js";
 import { normalizeDagYaml, normalizeNestedWorkflows } from "./dag-yaml.js";
 import { PiSdkRunner } from "./runner.js";
+import { collectOptimizerPolicyTasks, createSubflowOptimizeTool, type SubflowOptimizeToolParams } from "./optimizer/tool.js";
 import type { ChainStep, ExecutionOptions, FlowMode, FlowResult, SubagentResult, SubagentRunner, SubagentTask } from "./types.js";
 import { runChain } from "./flows/chain.js";
 import { runDag } from "./flows/dag.js";
@@ -21,7 +22,7 @@ export interface PiSubflowExtensionOptions {
 	userSubflowDir?: string;
 	historyPath?: string | ((ctx: ExtensionContext) => string);
 	allowedTools?: string[];
-	runnerFactory?: (input: { agents: Map<string, AgentDefinition>; ctx: ExtensionContext; params: SubflowToolParams }) => SubagentRunner;
+	runnerFactory?: (input: { agents: Map<string, AgentDefinition>; ctx: ExtensionContext; params: SubflowToolParams | SubflowOptimizeToolParams }) => SubagentRunner;
 }
 
 type RiskTolerance = "low" | "medium" | "high";
@@ -180,6 +181,28 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			});
 		}
 	});
+
+	pi.registerTool(createSubflowOptimizeTool({
+		discoverRunner: async ({ ctx, params }) => {
+			const flowTasks = flattenPolicyTasks(await collectOptimizerPolicyTasks(params, ctx.cwd));
+			validateNonEmptyStrings(flowTasks);
+			validateExecutionPolicy({
+				agentScope: "user",
+				confirmProjectAgents: true,
+				hasUI: ctx.hasUI,
+				riskTolerance: "low",
+				allowExternalSideEffectWithoutConfirmation: false,
+				tasks: flowTasks,
+			});
+			validateToolAllowlist(flowTasks, options.allowedTools);
+			const agents = await discoverAgents({
+				scope: "user",
+				userDir: options.userDir ?? join(homedir(), ".pi", "agent", "agents"),
+				projectDir: options.projectDir ?? join(ctx.cwd, ".pi", "agents"),
+			});
+			return options.runnerFactory?.({ agents, ctx, params }) ?? new PiSdkRunner({ agentDefinitions: agents });
+		},
+	}));
 }
 
 export default function piSubflowExtension(pi: ExtensionAPI): void {
@@ -532,9 +555,15 @@ function isWorkflowTask(task: SubagentTask | ChainStep): task is SubagentTask {
 }
 
 function normalizeLoopBody(tasks: NonNullable<SubagentTask["loop"]>["body"], context: string): NonNullable<SubagentTask["loop"]>["body"] {
-	if (Array.isArray(tasks)) return tasks.map((task, index) => normalizeNestedWorkflows({ tasks: [{ ...task, name: task.name ?? `${task.agent ?? "task"}-${index + 1}` }] }).tasks?.[0]!);
-	if (isRecord(tasks)) return Object.fromEntries(Object.entries(tasks).map(([name, task]) => [name, normalizeNestedWorkflows({ tasks: [{ ...task, name: task.name ?? name }] }).tasks?.[0]!]));
+	if (Array.isArray(tasks)) return tasks.map((task, index) => normalizeSingleTask({ ...task, name: task.name ?? `${task.agent ?? "task"}-${index + 1}` }));
+	if (isRecord(tasks)) return Object.fromEntries(Object.entries(tasks).map(([name, task]) => [name, normalizeSingleTask({ ...task, name: task.name ?? name })]));
 	throw new Error(`${context} loop body must be an array or mapping`);
+}
+
+function normalizeSingleTask(task: SubagentTask): SubagentTask {
+	const normalized = normalizeNestedWorkflows({ tasks: [task] }).tasks?.[0];
+	if (!normalized) throw new Error("failed to normalize task");
+	return normalized;
 }
 
 class ProgressRunner implements SubagentRunner {

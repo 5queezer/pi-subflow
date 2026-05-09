@@ -49,7 +49,7 @@ function evaluate(expression: Expr, resolve: (reference: WhenPlaceholderReferenc
 		case "placeholder":
 			return resolve(expression.reference);
 		case "unary":
-			return !Boolean(evaluate(expression.operand, resolve));
+			return !evaluate(expression.operand, resolve);
 		case "binary": {
 			if (expression.operator === "&&") return Boolean(evaluate(expression.left, resolve)) && Boolean(evaluate(expression.right, resolve));
 			if (expression.operator === "||") return Boolean(evaluate(expression.left, resolve)) || Boolean(evaluate(expression.right, resolve));
