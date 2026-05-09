@@ -11,10 +11,17 @@ export interface UsageStats {
 	turns?: number;
 }
 
+export interface WorkflowTask {
+	tasks?: SubagentTask[] | Record<string, SubagentTask>;
+	dagYaml?: string;
+	uses?: string;
+}
+
 export interface SubagentTask {
 	name?: string;
-	agent: string;
-	task: string;
+	agent?: string;
+	task?: string;
+	workflow?: WorkflowTask;
 	cwd?: string;
 	dependsOn?: string[];
 	when?: string;

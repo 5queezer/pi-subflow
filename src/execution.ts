@@ -2,7 +2,7 @@ import type { ExecutionOptions, RunnerInput, SubagentResult, SubagentTask, Trace
 import { validateOutput } from "./validation.js";
 
 export function namedTask(task: SubagentTask, index = 0): RunnerInput {
-	return { ...task, name: task.name ?? `${task.agent}-${index + 1}` };
+	return { ...task, name: task.name ?? `${task.agent ?? "task"}-${index + 1}` };
 }
 
 export async function runTask(task: RunnerInput, options: ExecutionOptions, trace: TraceEvent[]): Promise<SubagentResult> {
@@ -30,7 +30,7 @@ export async function runTask(task: RunnerInput, options: ExecutionOptions, trac
 		}
 	}
 	trace.push({ type: "task_failed", name: task.name, error: lastError, timestamp: Date.now() });
-	return { name: task.name, agent: task.agent, task: task.task, role: task.role, model: task.model, status: "failed", output: "", error: lastError, usage: {} };
+	return { name: task.name, agent: task.agent ?? "workflow", task: task.task ?? "summary", role: task.role, model: task.model, status: "failed", output: "", error: lastError, usage: {} };
 }
 
 export async function mapLimit<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {

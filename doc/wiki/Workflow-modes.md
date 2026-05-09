@@ -5,7 +5,7 @@
 | Single | exactly one focused subagent task is useful | `agent` + `task` |
 | Chain | a linear pipeline where each step may consume the immediately previous result | `chain: [{ agent, task }]` with optional `{previous}` |
 | Parallel | 2+ independent tasks can run concurrently | `tasks: [...]` with no `dependsOn` |
-| DAG | named dependencies, parallel stages, and verifier fan-in | `tasks: [...]` with `dependsOn`, or `dagYaml` shorthand |
+| DAG | named dependencies, parallel stages, verifier fan-in, and inline nested workflows | `tasks: [...]` with `dependsOn`, `dagYaml`, or `workflow: { tasks / dagYaml }` |
 
 ### Chain vs DAG
 

@@ -11,8 +11,9 @@ export async function runDag(input: { tasks: SubagentTask[] }, options: Executio
 	const validation = validateDagTasks(input.tasks);
 	if (validation.issues.length > 0) throw new Error(validation.issues[0].message);
 	const tasks = validation.tasks;
-	if (options.maxTurns !== undefined && options.maxTurns < tasks.length) {
-		throw new Error(`maxTurns ${options.maxTurns} is too low for ${tasks.length} DAG tasks; increase maxTurns or remove the limit`);
+	const runnableTaskCount = tasks.filter((task) => task.synthetic !== "workflow_summary").length;
+	if (options.maxTurns !== undefined && options.maxTurns < runnableTaskCount) {
+		throw new Error(`maxTurns ${options.maxTurns} is too low for ${runnableTaskCount} DAG tasks; increase maxTurns or remove the limit`);
 	}
 	const stages = planDagStages(tasks);
 	const byName = new Map<string, SubagentResult>();
@@ -35,6 +36,7 @@ export async function runDag(input: { tasks: SubagentTask[] }, options: Executio
 					return failedTask(task, `condition failed: ${message}`);
 				}
 			}
+			if (task.synthetic === "workflow_summary") return synthesizeWorkflowSummary(task, byName, trace);
 			const runnable = task.role === "verifier" ? appendDependencyOutputs(task, byName) : task;
 			return runTask(runnable, options, trace);
 		});
@@ -104,11 +106,17 @@ function dagStatus(results: SubagentResult[]): "completed" | "failed" {
 }
 
 function skippedTask(task: SubagentTask, error: string): SubagentResult {
-	return { name: task.name, agent: task.agent, task: task.task, role: task.role, model: task.model, dependsOn: task.dependsOn, status: "skipped", output: "", error, usage: {} };
+	return { name: task.name, agent: task.agent ?? "workflow", task: task.task ?? "summary", role: task.role, model: task.model, dependsOn: task.dependsOn, status: "skipped", output: "", error, usage: {} };
 }
 
 function failedTask(task: SubagentTask, error: string): SubagentResult {
-	return { name: task.name, agent: task.agent, task: task.task, role: task.role, model: task.model, dependsOn: task.dependsOn, status: "failed", output: "", error, usage: {} };
+	return { name: task.name, agent: task.agent ?? "workflow", task: task.task ?? "summary", role: task.role, model: task.model, dependsOn: task.dependsOn, status: "failed", output: "", error, usage: {} };
+}
+
+function synthesizeWorkflowSummary(task: NormalizedDagTask, byName: Map<string, SubagentResult>, trace: TraceEvent[]): SubagentResult {
+	trace.push({ type: "task_complete", name: task.name, timestamp: Date.now() });
+	const sections = task.dependsOn.map((dep) => `### ${dep}\n${byName.get(dep)?.output ?? ""}`);
+	return { name: task.name, agent: task.agent, task: task.task, dependsOn: task.dependsOn, status: "completed", output: sections.join("\n\n"), usage: {} };
 }
 
 function resolveWhenReference(reference: WhenPlaceholderReference, byName: Map<string, SubagentResult>): unknown {

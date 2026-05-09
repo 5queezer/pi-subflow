@@ -95,3 +95,7 @@ Validation happens before execution. Invalid graphs fail before any subagent run
 | dependency cycle | `dependency cycle: a -> b -> a` |
 
 Verifier fan-in shortcut: if a task has `role: "verifier"` and no explicit `dependsOn`, it depends on all non-verifier tasks.
+
+### Nested workflows
+
+A DAG task can also contain an inline nested workflow with `workflow.tasks` or `workflow.dagYaml`. Child task names are namespaced under the parent task (for example, `review.api`), parent `dependsOn` values flow into workflow roots, and the parent task exposes a synthetic summary result for downstream dependents.

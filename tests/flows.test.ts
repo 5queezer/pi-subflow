@@ -92,6 +92,97 @@ test("runDag executes dependencies before verifier and injects dependency output
 	assert.deepEqual(result.results[2].dependsOn, ["front", "back"]);
 });
 
+test("runDag expands nested workflow tasks with namespaced names", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name, task }) => `done:${name}:${task}`,
+	});
+
+	const result = await runDag(
+		{
+			tasks: [
+				{
+					name: "review",
+					workflow: {
+						tasks: [
+							{ name: "api", agent: "mock", task: "review api" },
+						],
+					},
+				},
+			],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.deepEqual(runner.calls.map((call) => call.name), ["review.api"]);
+	assert.deepEqual(result.results.map((item) => item.name), ["review.api", "review"]);
+	assert.match(result.results[1].output, /done:review.api:review api/);
+});
+
+test("runDag flows parent dependencies into first nested tasks and exposes a summary for downstream dependents", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name, task }) => `done:${name}:${task}`,
+	});
+
+	const result = await runDag(
+		{
+			tasks: [
+				{ name: "prep", agent: "mock", task: "prep" },
+				{
+					name: "review",
+					dependsOn: ["prep"],
+					workflow: {
+						tasks: [
+							{ name: "api", agent: "mock", task: "review api" },
+						],
+					},
+				},
+				{ name: "publish", agent: "mock", role: "verifier", dependsOn: ["review"], task: "publish" },
+			],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.deepEqual(runner.calls.map((call) => ({ name: call.name, dependsOn: call.dependsOn })), [
+		{ name: "prep", dependsOn: [] },
+		{ name: "review.api", dependsOn: ["prep"] },
+		{ name: "publish", dependsOn: ["review"] },
+	]);
+	assert.match(result.results.find((item) => item.name === "review")?.output ?? "", /done:review\.api:review api/);
+	assert.match(runner.calls[2].task, /### review/);
+	assert.match(runner.calls[2].task, /done:review\.api:review api/);
+});
+
+test("runDag scopes verifier fan-in to nested workflow siblings", async () => {
+	const runner = new MockSubagentRunner({
+		mock: async ({ name, task }) => `done:${name}:${task}`,
+	});
+
+	const result = await runDag(
+		{
+			tasks: [
+				{ name: "outside", agent: "mock", task: "outside" },
+				{
+					name: "review",
+					workflow: {
+						tasks: [
+							{ name: "api", agent: "mock", task: "api" },
+							{ name: "verify", agent: "mock", role: "verifier", task: "verify" },
+						],
+					},
+				},
+			],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.deepEqual(runner.calls.find((call) => call.name === "review.verify")?.dependsOn, ["review.api"]);
+	assert.match(runner.calls.find((call) => call.name === "review.verify")?.task ?? "", /### review\.api/);
+	assert.doesNotMatch(runner.calls.find((call) => call.name === "review.verify")?.task ?? "", /### outside/);
+});
+
 test("runDag skips a task when its when condition is false", async () => {
 	const runner = new MockSubagentRunner({
 		mock: async ({ name }) => name === "triage" ? JSON.stringify({ score: 0.2 }) : "ran",
