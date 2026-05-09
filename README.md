@@ -1,83 +1,186 @@
 # pi-subflow
 
-PocketFlow-powered prototype for Pi subagent orchestration.
+Delegate bounded work from Pi to isolated subagents with single-task, chain, parallel, and DAG workflows.
 
-`pi-subflow` explores a cleaner architecture for the Pi Subagent Extension: PocketFlow models the workflow layer, while Pi-specific execution is isolated behind a `SubagentRunner` interface. Real Pi execution is SDK-based (`PiSdkRunner`) and creates an isolated in-memory Pi session per subagent run.
+`pi-subflow` is a Pi extension and TypeScript orchestration core for running small teams of subagents without mixing workflow planning, policy checks, execution, validation, and rendering into one giant tool. It is most useful when a task has independent research/review streams, staged handoffs, or a final verifier that should synthesize dependency outputs.
 
-## Why
+## Why use it?
 
-The existing Pi subagent extension mixes tool registration, agent execution, policy checks, DAG execution, validation, and rendering in one extension. This project prototypes a reusable orchestration core that can later be embedded back into a Pi extension.
+Use `pi-subflow` when one assistant turn should coordinate multiple focused agents while keeping each agent bounded:
 
-The DAG path now has a preflight validation boundary so invalid graphs fail before execution. That boundary is intentionally small today, but it is the seam for future conditional branches, nested workflows, or dynamic dependency graphs.
+- ask several agents to inspect independent parts of a codebase in parallel
+- run a scout → implementer → reviewer chain with explicit handoff text
+- fan out research tasks, then fan in to one or more verifier/synthesis nodes
+- enforce DAG validation before any subagent starts
+- keep Pi-specific execution behind a small `SubagentRunner` boundary
 
-## Features in this MVP
+Do **not** use it for small direct tasks the current assistant can do faster by itself.
 
-- Single subagent task execution
-- Sequential chains with `{previous}` handoff
-- Parallel fanout with bounded concurrency
-- DAG execution with dependency stages, duplicate-name rejection, and structured dependency metadata on results
-- DAG preflight validation that rejects invalid graphs before execution
-- Verifier fan-in: verifier tasks without `dependsOn` depend on all non-verifier tasks
-- Dependency output injection for verifiers without parsing graph structure from task text
-- Markdown section / minimal JSON required-field validation
-- Retry, timeout, and aggregate budget helpers; retries are limited to read-only/default tasks and are disabled for mutating or external-side-effect tasks
-- Mock runner for deterministic tests
-- Pi SDK runner that creates an isolated in-memory Pi session per subagent run, includes discovered agent instructions as quoted untrusted context, fails fast on unknown explicit models, and forwards cwd/tools/model/thinking into SDK session creation
-- Agent markdown discovery for user/project scopes
-- Project-agent, tool-allowlist, and external-side-effect policy checks with risk validation before UI side-effect confirmation
-- JSONL run-history append helper
+## Workflow modes
+
+```mermaid
+flowchart TD
+  U[User request] --> D{What shape is the work?}
+  D -->|One bounded task| S[Single]
+  D -->|Step N needs previous output| C[Chain]
+  D -->|Independent tasks| P[Parallel]
+  D -->|Explicit dependencies| G[DAG]
+
+  S --> R[One subagent result]
+  C --> R
+  P --> R
+  G --> R
+```
+
+| Mode | Use when | Input shape |
+| --- | --- | --- |
+| Single | exactly one focused subagent task is useful | `agent` + `task` |
+| Chain | each step consumes the previous result | `chain: [{ agent, task }]` with optional `{previous}` |
+| Parallel | 2+ independent tasks can run concurrently | `tasks: [...]` with no `dependsOn` |
+| DAG | tasks have named dependencies and verifier fan-in | `tasks: [...]` with `dependsOn` |
+
+## DAGs: the interesting part
+
+DAG mode runs dependency stages in order. Tasks with no dependencies run first; dependent tasks run only after their prerequisites complete. Verifier tasks receive dependency outputs automatically, so synthesis nodes do not need to parse graph structure from task text.
+
+```mermaid
+flowchart LR
+  A[api-review<br/>worker] --> V[final-verdict<br/>verifier]
+  T[test-review<br/>worker] --> V
+  D[docs-review<br/>worker] --> V
+```
+
+Example DAG:
+
+```json
+{
+  "tasks": [
+    {
+      "name": "api-review",
+      "agent": "reviewer",
+      "task": "Review src/index.ts and public exports",
+      "tools": ["read"],
+      "model": "openai-codex/gpt-5.4-mini"
+    },
+    {
+      "name": "tests-review",
+      "agent": "reviewer",
+      "task": "Review tests for missing failure-path coverage",
+      "tools": ["read"],
+      "model": "openai-codex/gpt-5.4-mini"
+    },
+    {
+      "name": "final-verdict",
+      "agent": "reviewer",
+      "role": "verifier",
+      "dependsOn": ["api-review", "tests-review"],
+      "task": "Synthesize the dependency outputs into a prioritized verdict",
+      "tools": ["read"],
+      "model": "openai-codex/gpt-5.4-mini"
+    }
+  ]
+}
+```
+
+DAG validation happens before execution. Invalid graphs fail before any subagent runs:
+
+| Invalid DAG | Error |
+| --- | --- |
+| duplicate task name | `duplicate DAG task name: dup` |
+| missing dependency | `task verify depends on missing task missing` |
+| self-dependency | `task loop cannot depend on itself` |
+| dependency cycle | `dependency cycle: a -> b -> a` |
+
+Verifier fan-in shortcut: if a task has `role: "verifier"` and no explicit `dependsOn`, it depends on all non-verifier tasks.
+
+```mermaid
+flowchart TB
+  R1[research-web] --> J[judge<br/>verifier]
+  R2[research-code] --> J
+  R3[research-docs] --> J
+```
+
+## Features
+
+- Single, chain, parallel, and DAG execution
+- DAG preflight validation with precise diagnostics
+- Deterministic stage planning for dependency graphs
+- Structured `dependsOn` metadata on `SubagentResult`
+- Verifier dependency-output injection
+- Markdown section and minimal JSON required-field validation
 - Verifier repair and re-verification rounds
-- Pi extension entry point that registers a `subflow` tool and interactive `/subflow-runs` browser
-- Live progress widget during interactive `subflow` execution with mode/status, running/completed/failed/skipped counts, per-task symbols, elapsed time refreshes, and timeout visibility
-- Agent-defined `tools`, `model`, and `thinking` are applied as runner inputs, not only prompt hints
+- Retry, timeout, and aggregate budget helpers
+- Retry safety: mutating and external-side-effect tasks are not retried
+- Pi SDK runner with isolated in-memory Pi sessions per subagent run
+- Agent markdown discovery from user and project scopes
+- Agent-defined `tools`, `model`, and `thinking` defaults
+- Runtime tool allowlist checks
+- Project-agent and external-side-effect policy gates
+- JSONL run history at `.pi/subflow-runs.jsonl`
+- Interactive `/subflow-runs` browser
+- Live progress widget with running/completed/failed/skipped counts
+- LLM-facing `promptSnippet` and `promptGuidelines` so Pi knows when and how to use the loaded tool
 
-## Install
+## Installation
+
+### From pi.dev / npm
+
+After the package is published, install it as a Pi package:
 
 ```bash
+pi install npm:pi-subflow
+```
+
+For one-off testing without adding it to settings:
+
+```bash
+pi -e npm:pi-subflow
+```
+
+### Local development install
+
+Clone the repository, install dependencies, build, then load the built extension:
+
+```bash
+git clone <repo-url> pi-subflow
+cd pi-subflow
 npm install
-```
-
-## Test
-
-```bash
-npm test
-```
-
-## Project APIs
-
-Primary exports:
-
-- `discoverAgents` for loading markdown agent definitions from user and project directories.
-- `validateExecutionPolicy` for project-local agent confirmation and external-side-effect checks.
-- `appendRunHistory` for JSONL run history persistence.
-- `MockSubagentRunner` and `PiSdkRunner` for pluggable subagent execution.
-- `runSingle`, `runChain`, `runParallel`, and `runDag` for workflow execution.
-- `registerPiSubflowExtension` / default `piSubflowExtension` for registering the orchestration core as a Pi extension tool.
-
-## Pi extension usage
-
-The package now includes an extension entry point. In development, load it with Pi's extension flag or add the built file/path to Pi extension settings after building:
-
-```bash
 npm run build
 pi -e ./dist/extension.js
 ```
 
-The extension registers:
+During local development, you can also symlink the built extension into Pi's global extension directory:
 
-- `subflow` tool: accepts `agent` + `task`, `chain`, or `tasks` and dispatches to single, chain, parallel, or DAG execution. In interactive Pi sessions it shows a live progress widget with mode/status, running/completed/failed/skipped counts, elapsed time that refreshes while tasks run, timeout, and per-task `✓`/`✗`/`⏳` rows, then clears the widget at completion. The tool owns its visible Pi card renderer (`renderShell: "self"`) so the call/result card shows a compact summary with task-level output/error lines, each task's agent/model (or `default`), collapsed long outputs, a `final:` line when available, and a labeled ASCII `DAG graph` with role/model/dependency metadata for dependency runs.
-- `/subflow-runs` command: opens an interactive run-history browser for `.pi/subflow-runs.jsonl`. Use arrow keys or `j`/`k` to navigate, enter for details, and escape/`q` to go back or close. Tool executions append history to `.pi/subflow-runs.jsonl` under the active working directory by default.
+```bash
+ln -sfn "$PWD/dist" ~/.pi/agent/extensions/subflow
+```
 
-Project-local agent scopes prompt for confirmation when UI is available; non-UI executions must explicitly set `confirmProjectAgents: false`. External side-effect tasks require `riskTolerance: "high"` and confirmation or explicit bypass; the risk check runs before prompting so low-risk calls fail without a misleading confirmation. Mutating and external-side-effect tasks are not retried even when `maxRetries` is greater than 1.
+Run `/reload` in Pi after rebuilding.
 
-When an agent definition declares `tools`, `model`, or `thinking`, the extension applies those values to the actual runner input for tasks using that agent. Explicit task-level values still override agent defaults. Explicit tools are checked against a runtime allowlist (`read`, `bash`, `grep`, `find`, `ls`, `edit`, and `write` by default; embedders can pass `allowedTools`). Tasks and chain steps default to the active Pi `cwd` unless they set `cwd` explicitly.
+## Usage in Pi
 
-## Runner choices
+Once loaded, Pi gets a `subflow` tool. Ask Pi for bounded multi-agent work, for example:
 
-- Use `PiSdkRunner` for normal in-process Pi execution. It creates a fresh `createAgentSession()` session with `SessionManager.inMemory()` for each subagent run, preserving context isolation without spawning a full `pi` process. Pass discovered agent definitions via `agentDefinitions` when you want the runner to include the selected agent's description, tools, model/thinking hints, and markdown instructions in the task prompt. Agent markdown is quoted as untrusted context below system/caller instructions. When invoked through the extension, effective task inputs include agent-defined tools/model/thinking before reaching the runner. Explicit task `tools` values are passed to the SDK session as the active tool subset; omit `tools` to let Pi create its default tool set for that subagent cwd. Explicit `model` values are resolved through the Pi model registry and fail fast if unknown instead of silently falling back to the default model. Tests can inject `modelRegistry` and `createAgentSession` through `PiSdkRunnerOptions`.
-- Use `MockSubagentRunner` for deterministic tests and local orchestration development.
+```text
+Use subflow to run three read-only code review agents in parallel:
+1. API surface review
+2. test coverage review
+3. README/docs review
+Then run a verifier that synthesizes the findings.
+Use cheap models for the first three tasks and a stronger model for the verifier.
+```
 
-## Example
+The extension also registers:
+
+```text
+/subflow-runs
+```
+
+This opens an interactive browser for `.pi/subflow-runs.jsonl` in the active project.
+
+## TypeScript API
+
+`pi-subflow` can also be used as a library.
 
 ```ts
 import { MockSubagentRunner, runDag } from "pi-subflow";
@@ -87,26 +190,200 @@ const runner = new MockSubagentRunner({
   reviewer: async ({ task }) => `verified:\n${task}`,
 });
 
-const result = await runDag({
-  tasks: [
-    { name: "frontend", agent: "scout", task: "Inspect frontend auth" },
-    { name: "backend", agent: "scout", task: "Inspect backend auth" },
-    { name: "verify", agent: "reviewer", role: "verifier", task: "Synthesize findings" },
-  ],
-}, { runner });
+const result = await runDag(
+  {
+    tasks: [
+      { name: "frontend", agent: "scout", task: "Inspect frontend auth" },
+      { name: "backend", agent: "scout", task: "Inspect backend auth" },
+      {
+        name: "verify",
+        agent: "reviewer",
+        role: "verifier",
+        dependsOn: ["frontend", "backend"],
+        task: "Synthesize findings",
+      },
+    ],
+  },
+  { runner },
+);
+
+console.log(result.status, result.output);
 ```
+
+Primary exports:
+
+- `runSingle`, `runChain`, `runParallel`, `runDag`
+- `validateDagTasks`, `planDagStages`
+- `discoverAgents`
+- `validateExecutionPolicy`
+- `appendRunHistory`
+- `MockSubagentRunner`, `PiSdkRunner`
+- `registerPiSubflowExtension`, `piSubflowExtension`
+
+## Configuration and policy
+
+### Agent scope
+
+Agents are markdown files discovered from user and/or project directories. Project-local agents require confirmation in interactive sessions unless explicitly disabled.
+
+```json
+{
+  "agentScope": "both",
+  "confirmProjectAgents": true
+}
+```
+
+### Tools
+
+Set the minimum tool subset each subagent needs:
+
+```json
+{
+  "tools": ["read", "grep", "find"]
+}
+```
+
+By default, explicit task tools are checked against this runtime allowlist:
+
+```text
+read, bash, grep, find, ls, edit, write
+```
+
+Embedders can override the allowlist through `registerPiSubflowExtension(..., { allowedTools })`.
+
+### Models and thinking
+
+Set `model` and `thinking` globally, per task, or in agent frontmatter. Explicit task values win over agent defaults.
+
+```json
+{
+  "model": "openai-codex/gpt-5.4-mini",
+  "thinking": "low"
+}
+```
+
+### Risk and retries
+
+External side-effect tasks require high risk tolerance and confirmation or explicit bypass. Mutating and external-side-effect tasks are not retried, even when `maxRetries` is greater than 1.
+
+```json
+{
+  "riskTolerance": "high",
+  "maxRetries": 2,
+  "timeoutSeconds": 120,
+  "maxTurns": 40
+}
+```
+
+## Architecture
+
+```mermaid
+flowchart TB
+  PI[Pi extension<br/>subflow tool] --> POLICY[Policy + tool allowlist]
+  POLICY --> FLOW{Flow selector}
+  FLOW --> SINGLE[runSingle]
+  FLOW --> CHAIN[runChain]
+  FLOW --> PARALLEL[runParallel]
+  FLOW --> DAG[runDag]
+  DAG --> VALIDATE[DAG validation boundary]
+  VALIDATE --> PLAN[Stage planner]
+  SINGLE --> RUNNER[SubagentRunner]
+  CHAIN --> RUNNER
+  PARALLEL --> RUNNER
+  PLAN --> RUNNER
+  RUNNER --> SDK[PiSdkRunner<br/>isolated Pi SDK session]
+  RUNNER --> MOCK[MockSubagentRunner<br/>tests]
+  SDK --> HISTORY[JSONL history + renderer]
+  MOCK --> HISTORY
+```
+
+Important boundaries:
+
+- Workflow functions are independent from Pi UI concerns.
+- `SubagentRunner` isolates orchestration from real Pi execution.
+- `PiSdkRunner` creates a fresh in-memory Pi SDK session per subagent run.
+- Agent markdown is included as quoted untrusted context, below system and caller instructions.
+- DAG normalization, validation, and planning live behind the DAG validation boundary.
+
+## Development
+
+```bash
+npm install
+npm run build
+npm test
+```
+
+Before claiming a change is complete, run:
+
+```bash
+npm run build && npm test
+```
+
+The test suite covers orchestration behavior, DAG validation, policy checks, Pi extension rendering, run history, SDK runner behavior, and LLM-facing prompt guidance.
+
+## Troubleshooting
+
+### Pi still shows old DAG validation errors
+
+If invalid DAGs return a generic error such as:
+
+```text
+dependency cycle or unknown dependency among: ...
+```
+
+Pi may be loading an older extension implementation. Check for conflicts:
+
+```bash
+ls -la ~/.pi/agent/extensions
+readlink -f ~/.pi/agent/extensions/subflow
+```
+
+The local development symlink should point to:
+
+```text
+/home/christian/Projects/pi-subflow/dist
+```
+
+Rebuild and reload:
+
+```bash
+npm run build
+# then run /reload inside Pi
+```
+
+### Invalid role errors
+
+Only these task roles are valid:
+
+```text
+worker, verifier
+```
+
+Omit `role` for normal worker tasks. Do not use invented roles such as `researcher`.
+
+### Verifier did not receive dependency outputs
+
+Dependency outputs are injected for verifier tasks. Set:
+
+```json
+{ "role": "verifier" }
+```
+
+on synthesis, judge, or validation nodes that need dependency context.
+
+## Roadmap
+
+The current DAG validation boundary is intentionally small and dependency-free. Before adding conditional branches, nested workflows, dynamic dependency graphs, or graph visualization, the project should re-evaluate a graph library such as `graphlib` and treat validation as a workflow IR boundary.
 
 ## Architecture decision records
 
-ADRs live in [`docs/adr/`](docs/adr/). Start with [`ADR 0001: Use PocketFlow for the subagent orchestration core`](docs/adr/0001-pocketflow-orchestration-core.md). For the DAG validation direction, see [`ADR 0002: Introduce a DAG validation boundary before advanced workflow features`](docs/adr/0002-dag-validation-ir-boundary.md).
+ADRs live in [`docs/adr/`](docs/adr/):
 
-Keep this README and ADRs synchronized when architecture, scope, public APIs, install/test commands, or design rationale change.
+- [`ADR 0001: Use PocketFlow for the subagent orchestration core`](docs/adr/0001-pocketflow-orchestration-core.md)
+- [`ADR 0002: Introduce a DAG validation boundary before advanced workflow features`](docs/adr/0002-dag-validation-ir-boundary.md)
 
-## Name collision check
+Keep this README, ADRs, and the `subflow` tool's LLM-facing `promptSnippet` / `promptGuidelines` synchronized when behavior, schema, validation, public API, install/test commands, or design rationale change.
 
-Before creation, these were checked as free:
+## License
 
-- local sibling directory: `../pi-subflow`
-- npm package: `pi-subflow` returned 404
-- `https://pi.dev/pi-subflow` returned 404
-- `https://www.pi.dev/pi-subflow` returned 404
+ISC
