@@ -78,6 +78,17 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 		label: "Pi Subflow",
 		description: "Delegate bounded work to isolated Pi subagents using the pi-subflow orchestration core.",
 		promptSnippet: "subflow: delegate bounded work to isolated Pi subagents; supports single, chain, parallel, and DAG task execution.",
+		promptGuidelines: [
+			"Use subflow for bounded multi-agent work with clear inputs and expected outputs; do not use subflow for small direct tasks you can do yourself.",
+			"Use subflow single mode when exactly one focused subagent task is needed.",
+			"Use subflow chain mode when later steps must consume the previous step via {previous}.",
+			"Use subflow parallel mode when 2+ independent tasks can run concurrently and do not depend on each other.",
+			"Use subflow DAG mode when tasks have explicit dependsOn relationships; set role: \"verifier\" for synthesis or validation nodes that need dependency outputs.",
+			"For subflow task roles, only use \"worker\" or \"verifier\". Omit role to default to worker; do not invent roles like \"researcher\".",
+			"For subflow DAGs, task names must be unique; missing dependencies, self-dependencies, and dependency cycles are rejected before execution.",
+			"Set subflow tools to the minimum tool subset each subagent needs. Omit tools only when the default Pi tool set is appropriate.",
+			"Set subflow model and thinking per task when quality/cost tradeoffs differ across subagents.",
+		],
 		renderShell: "self",
 		parameters: Type.Object({
 			agent: Type.Optional(Type.String({ minLength: 1, description: "Agent name for single-task mode." })),

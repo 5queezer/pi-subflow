@@ -14,6 +14,18 @@ class RecordingRunner implements SubagentRunner {
 	}
 }
 
+test("subflow extension exposes LLM-facing prompt guidance", () => {
+	const pi = fakePi();
+	registerPiSubflowExtension(pi);
+
+	assert.match(pi.tool.promptSnippet, /single, chain, parallel, and DAG/);
+	assert(pi.tool.promptGuidelines.some((line: string) => /Use subflow DAG mode/.test(line)));
+	assert(pi.tool.promptGuidelines.some((line: string) => /role: "verifier"/.test(line)));
+	assert(pi.tool.promptGuidelines.some((line: string) => /only use "worker" or "verifier"/.test(line)));
+	assert(pi.tool.promptGuidelines.some((line: string) => /task names must be unique/.test(line)));
+	assert(pi.tool.promptGuidelines.some((line: string) => /minimum tool subset/.test(line)));
+});
+
 test("subflow extension registers a Pi tool that runs a single task and appends history", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const userDir = join(cwd, "agents");
