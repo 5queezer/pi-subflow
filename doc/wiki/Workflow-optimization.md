@@ -27,7 +27,7 @@ Canonical eval sets live under `.pi/subflow/evals/*.yaml`. Inline eval sets are 
 
 ```yaml
 name: docs-consistency
-workflow: examples/workflows/docs-consistency.yaml
+workflow: examples/workflows/recipes/docs-consistency.yaml
 objective:
   taskScore: 1
   cost: 0

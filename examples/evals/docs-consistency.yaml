@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/5queezer/pi-subflow/refs/heads/master/schemas/subflow-eval.schema.json
 name: docs-consistency
-workflow: examples/workflows/docs-consistency.yaml
+workflow: examples/workflows/recipes/docs-consistency.yaml
 objective:
   taskScore: 1
   cost: 0

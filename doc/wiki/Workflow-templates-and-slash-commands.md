@@ -36,14 +36,24 @@ Stable workflow-command behavior:
 - workflow task `cwd` values must be relative and cannot contain `..`
 - run `/reload` after adding, removing, or renaming workflow files
 
-Templates:
+Recipes (concrete jobs):
 
-| Template | Use when | Path |
+| Recipe | Use when | Path |
 | --- | --- | --- |
-| Code review fan-in | independent API, tests, and docs reviewers should feed one verdict | `examples/workflows/code-review.yaml` |
-| Implementation planning | requirements, architecture, and risk scouts should feed one implementation plan | `examples/workflows/implementation-planning.yaml` |
-| Research synthesis | web, repository, and docs research should be reconciled into one answer | `examples/workflows/research-synthesis.yaml` |
-| Docs consistency | README, ADR, and LLM-facing guidance should be checked together | `examples/workflows/docs-consistency.yaml` |
-| Bug investigation | repro, code-path, and test-gap scouts should feed one root-cause analysis | `examples/workflows/bug-investigation.yaml` |
+| Code review fan-in | independent API, tests, and docs reviewers should feed one verdict | `examples/workflows/recipes/code-review.yaml` |
+| Implementation planning | requirements, architecture, and risk scouts should feed one implementation plan | `examples/workflows/recipes/implementation-planning.yaml` |
+| Research synthesis | web, repository, and docs research should be reconciled into one answer | `examples/workflows/recipes/research-synthesis.yaml` |
+| Docs consistency | README, ADR, and LLM-facing guidance should be checked together | `examples/workflows/recipes/docs-consistency.yaml` |
+| Bug investigation | repro, code-path, and test-gap scouts should feed one root-cause analysis | `examples/workflows/recipes/bug-investigation.yaml` |
+
+Patterns (reusable shapes — see [[Workflow patterns|Workflow-patterns]] for model fit and rationale):
+
+| Pattern | Use when | Path |
+| --- | --- | --- |
+| Adversarial triangle | a proposal needs steelman + attack rather than parallel polling | `examples/workflows/patterns/adversarial-triangle.yaml` |
+| Two-tier audit | expensive parallel audits should be gated by a cheap triage | `examples/workflows/patterns/two-tier-audit.yaml` |
+| Tournament | n-best with a deterministic discriminator (tests/benchmarks) | `examples/workflows/patterns/tournament.yaml` |
+| Cross-validation | irreversible decisions need two independent runs and a tiebreaker | `examples/workflows/patterns/cross-validation.yaml` |
+| Map-group-reduce | partition a large input, regroup findings by theme, rank by impact | `examples/workflows/patterns/map-group-reduce.yaml` |
 
 These examples intentionally use generic agent names such as `reviewer`, `planner`, `researcher`, and `debugger`. Rename them to match agents installed in your Pi user or project agent directories.

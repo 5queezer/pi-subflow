@@ -4,6 +4,18 @@ Five DAG patterns that go beyond the standard "fan-out then verifier" shape, wit
 
 See [[DAGs|DAGs]] for schema, validation, and execution semantics.
 
+## Model tiers used below
+
+Tiers are abstract — map them to whatever your stack offers. The Codex IDs below come from the model card in `~/.pi/agent/AGENTS.md`.
+
+| Tier   | Codex ID(s)                                  | Cap | Speed | Notes                                                                                                                                                                          |
+| ------ | -------------------------------------------- | :-: | :---: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Spark  | `gpt-5.3-codex-spark`                        |  3  |   5   | Near-instant. Needs detailed instructions. Rate-limited — burns quota *because* it's fast (many turns per minute). Use at gates and mechanical splits, not inside fan-outs.    |
+| Mini   | `gpt-5.4-mini`                               |  3  |   4   | Cheap, capable enough for parallel fan-out workhorses.                                                                                                                          |
+| Strong | `gpt-5.5` (general) / `gpt-5.3-codex` (code) |  5  |   3   | Frontier reasoning. Use for verdicts, irreversible decisions, and roles that must produce novel arguments rather than apply a tight spec.                                       |
+
+Wall-clock notes per pattern are critical-path latency, not per-call.
+
 ## 1. Adversarial Triangle (debate, not parallel polling)
 
 ```mermaid
@@ -18,6 +30,17 @@ Defender MUST steelman the proposal, attacker MUST find blockers. Structurally d
 
 **Use:** code review where groupthink is suspected, evaluating an architectural proposal you already lean toward, RFC review.
 **Shape:** chains (proposer to defender, proposer to attacker) with DAG fan-in to judge.
+
+**Model fit:**
+
+| agent    | tier   | why                                                |
+| -------- | ------ | -------------------------------------------------- |
+| proposer | Strong | sets the substantive frame; weak frame poisons all |
+| defender | Strong | must steelman, not parrot                          |
+| attacker | Strong | finds non-obvious blockers, not surface nits       |
+| judge    | Strong | weighs both sides; verdict quality matters         |
+
+Wall-clock: slow — three Strong-tier hops on the critical path. Spark fit: poor; every role is novel reasoning, not spec-following.
 
 ## 2. Two-Tier Audit (cheap gate before expensive fan-out)
 
@@ -40,6 +63,21 @@ Triage is fast and cheap. Failed triage skips the parallel audits. Saves tokens 
 **Use:** PR review pipelines, refactor proposals, multi-stage release gates.
 **Pure-DAG limitation:** conditional edges. Today you run all audits and let the verifier short-circuit, paying full fan-out cost.
 
+**Model fit:**
+
+| agent             | tier   | why                                                       |
+| ----------------- | ------ | --------------------------------------------------------- |
+| generator         | Strong | code/proposal quality bounds everything downstream        |
+| triage_reviewer   | Spark  | textbook gate role: tight spec, fast verdict, cheap fail  |
+| security          | Strong | subtle issues; low recall here is the worst failure mode  |
+| perf              | Mini   | mostly heuristic checks against known anti-patterns       |
+| api_stability     | Mini   | structural diff against the published surface             |
+| test_coverage     | Mini   | coverage analysis is mechanical                           |
+| final_verifier    | Strong | synthesizes parallel signals into a single verdict        |
+| early_reject      | Spark  | emits a templated rejection                               |
+
+Wall-clock: moderate — Spark gate, then parallel Mini audits, then one Strong synth. Spark fit: ideal at the gate; *avoid* inside the fan-out (parallel Spark calls drain quota fast).
+
 ## 3. Tournament (n-best with deterministic discriminator)
 
 ```mermaid
@@ -57,6 +95,17 @@ Three solvers, deliberately different priors (temperature, prompt framing, model
 
 **Use:** algorithmic problems with verifiable output, codegen with a test suite, prompt optimization. Skip for subjective work, ranking becomes noise.
 
+**Model fit:**
+
+| agent          | tier                            | why                                                    |
+| -------------- | ------------------------------- | ------------------------------------------------------ |
+| solver_a       | Strong (`gpt-5.3-codex`, low T) | coding-specialist deterministic baseline               |
+| solver_b       | Strong (`gpt-5.5`, high T)      | general frontier with exploration                      |
+| solver_c       | Spark (`gpt-5.3-codex-spark`)   | the "different prior" — fastest, tightest spec         |
+| discriminator  | none (deterministic)            | runs tests/benchmarks; if forced LLM, Mini             |
+
+Wall-clock: bound by the slowest solver (Strong). Spark fit: excellent — tournaments *want* tier diversity, and Spark's "needs detailed instructions" constraint gives it a naturally distinct prior from Strong's freer reasoning.
+
 ## 4. Cross-Validation (blind redundancy for irreversible decisions)
 
 ```mermaid
@@ -72,6 +121,17 @@ flowchart TD
 Same task, two independent runs without shared context. Catches the failure mode where one agent hallucinates a confident recommendation. Expensive, so reserve for high-stakes outputs.
 
 **Use:** decisions with no take-back (production migrations, schema changes, policy decisions), audits where a single point of failure is unacceptable.
+
+**Model fit:**
+
+| agent      | tier                     | why                                                            |
+| ---------- | ------------------------ | -------------------------------------------------------------- |
+| agent_a    | Strong (`gpt-5.5`)       | high-stakes output; quality dominates cost                     |
+| agent_b    | Strong (`gpt-5.3-codex`) | different model family for genuine independence                |
+| comparator | Mini                     | structural divergence check; cheap and frequent                |
+| tiebreaker | Strong (`gpt-5.5`)       | sees both, must reason about the disagreement itself           |
+
+Wall-clock: slow — two parallel Strong runs plus an optional Strong tiebreaker. Spark fit: poor; a fast, weakly-grounded run is exactly the failure mode this pattern guards against.
 
 ## 5. Map-Group-Reduce (partition by structure)
 
@@ -90,6 +150,17 @@ flowchart TD
 Generalization of the standard "review N files in parallel" pattern. The intermediate **grouper** node re-organizes outputs by theme (security, perf, UX) instead of by partition (file_1, file_2), so the final synthesizer ranks across the whole input rather than per partition.
 
 **Use:** large codebase audits, multi-document research synthesis, log analysis, content review across many pages.
+
+**Model fit:**
+
+| agent             | tier             | why                                                       |
+| ----------------- | ---------------- | --------------------------------------------------------- |
+| splitter          | Spark            | mechanical partition by file/section; tight spec          |
+| reviewer × N      | Mini             | parallel workhorse; volume drives cost                    |
+| grouper           | Mini or Strong   | Mini if themes are predefined; Strong if inferring themes |
+| final_synthesizer | Strong           | ranks across the whole input; impact judgment             |
+
+Wall-clock: bound by the reviewers (parallel) plus the final synth. Spark fit: ideal for the splitter; for reviewers, only if N is small *and* instructions are tight — otherwise Spark's quota drains mid-fan-out.
 
 ## What pure DAG cannot express
 
@@ -116,12 +187,12 @@ Predicate is a JSONPath-style expression over upstream task outputs, evaluated a
 ## Go further
 
 - [[Workflow templates and slash commands|Workflow-templates-and-slash-commands]]
-- Explore the pattern templates in `examples/workflows/`:
-  - [adversarial-triangle.yaml](https://github.com/5queezer/pi-subflow/blob/main/examples/workflows/adversarial-triangle.yaml)
-  - [two-tier-audit.yaml](https://github.com/5queezer/pi-subflow/blob/main/examples/workflows/two-tier-audit.yaml)
-  - [tournament.yaml](https://github.com/5queezer/pi-subflow/blob/main/examples/workflows/tournament.yaml)
-  - [cross-validation.yaml](https://github.com/5queezer/pi-subflow/blob/main/examples/workflows/cross-validation.yaml)
-  - [map-group-reduce.yaml](https://github.com/5queezer/pi-subflow/blob/main/examples/workflows/map-group-reduce.yaml)
+- Explore the pattern templates in `examples/workflows/patterns/`:
+  - [adversarial-triangle.yaml](https://github.com/5queezer/pi-subflow/blob/main/examples/workflows/patterns/adversarial-triangle.yaml)
+  - [two-tier-audit.yaml](https://github.com/5queezer/pi-subflow/blob/main/examples/workflows/patterns/two-tier-audit.yaml)
+  - [tournament.yaml](https://github.com/5queezer/pi-subflow/blob/main/examples/workflows/patterns/tournament.yaml)
+  - [cross-validation.yaml](https://github.com/5queezer/pi-subflow/blob/main/examples/workflows/patterns/cross-validation.yaml)
+  - [map-group-reduce.yaml](https://github.com/5queezer/pi-subflow/blob/main/examples/workflows/patterns/map-group-reduce.yaml)
 
 ### Web links
 

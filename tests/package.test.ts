@@ -87,7 +87,7 @@ test("workflow template examples are shipped and indexed", async () => {
 	];
 
 	for (const name of templateNames) {
-		const path = `examples/workflows/${name}.yaml`;
+		const path = `examples/workflows/recipes/${name}.yaml`;
 		const template = await readFile(path, "utf8");
 		assert.match(readme, new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 		assert.match(template, /role: verifier/);
@@ -115,7 +115,7 @@ test("workflow templates advertise the DAG YAML schema", async () => {
 	assert.match(readme, /yaml-language-server: \$schema=/);
 
 	for (const name of ["code-review", "implementation-planning", "research-synthesis", "docs-consistency", "bug-investigation"]) {
-		const template = await readFile(`examples/workflows/${name}.yaml`, "utf8");
+		const template = await readFile(`examples/workflows/recipes/${name}.yaml`, "utf8");
 		assert.equal(template.split(/\r?\n/, 1)[0], "# yaml-language-server: $schema=https://raw.githubusercontent.com/5queezer/pi-subflow/refs/heads/master/schemas/subflow-dag.schema.json");
 	}
 });

@@ -88,17 +88,27 @@ Verifier tasks receive dependency outputs automatically. A verifier with no expl
 
 ## Workflow templates
 
-Example workflows live in [`examples/workflows/`](examples/workflows/). They advertise the DAG YAML schema with:
+Example workflows live in [`examples/workflows/`](examples/workflows/), split into concrete **recipes** (task-specific jobs) and abstract **patterns** (reusable shapes). Both advertise the DAG YAML schema with:
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/5queezer/pi-subflow/refs/heads/master/schemas/subflow-dag.schema.json
 ```
 
-- [`code-review.yaml`](examples/workflows/code-review.yaml)
-- [`implementation-planning.yaml`](examples/workflows/implementation-planning.yaml)
-- [`research-synthesis.yaml`](examples/workflows/research-synthesis.yaml)
-- [`docs-consistency.yaml`](examples/workflows/docs-consistency.yaml)
-- [`bug-investigation.yaml`](examples/workflows/bug-investigation.yaml)
+Recipes (concrete jobs):
+
+- [`code-review.yaml`](examples/workflows/recipes/code-review.yaml)
+- [`implementation-planning.yaml`](examples/workflows/recipes/implementation-planning.yaml)
+- [`research-synthesis.yaml`](examples/workflows/recipes/research-synthesis.yaml)
+- [`docs-consistency.yaml`](examples/workflows/recipes/docs-consistency.yaml)
+- [`bug-investigation.yaml`](examples/workflows/recipes/bug-investigation.yaml)
+
+Patterns (reusable DAG shapes — see [Workflow patterns](https://github.com/5queezer/pi-subflow/wiki/Workflow-patterns) for model fit and rationale):
+
+- [`adversarial-triangle.yaml`](examples/workflows/patterns/adversarial-triangle.yaml)
+- [`two-tier-audit.yaml`](examples/workflows/patterns/two-tier-audit.yaml)
+- [`tournament.yaml`](examples/workflows/patterns/tournament.yaml)
+- [`cross-validation.yaml`](examples/workflows/patterns/cross-validation.yaml)
+- [`map-group-reduce.yaml`](examples/workflows/patterns/map-group-reduce.yaml)
 
 Copy a `.yaml` or `.yml` template into `.pi/subflow/workflows/` to register it as a slash command at Pi session startup:
 

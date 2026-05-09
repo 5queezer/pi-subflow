@@ -1,0 +1,84 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/5queezer/pi-subflow/refs/heads/master/schemas/subflow-dag.schema.json
+# Pattern: Two-Tier Audit (cheap gate before expensive fan-out).
+# See doc/wiki/Workflow-patterns.md for the model fit table and rationale.
+#
+# Pure-DAG limitation: conditional edges. Until `when:` short-circuits descendants,
+# the parallel audits run on every input and the verifier short-circuits in software.
+# When conditional edges land, gate the audits with `when: "${triage.output.pass} == true"`.
+generator:
+  agent: planner
+  model: openai-codex/gpt-5.5
+  task: |
+    Produce the proposal/code/doc under audit. Quality here bounds everything
+    downstream — do not skimp.
+  tools: [read]
+  thinking: medium
+
+triage:
+  agent: reviewer
+  model: openai-codex/gpt-5.3-codex-spark
+  needs: [generator]
+  task: |
+    Cheap gate. Decide whether the generator output meets the bar for full audit.
+    Return a one-paragraph verdict and an explicit `pass: true|false` line as the
+    final output. Do not attempt deep review — that is the next stage's job.
+  tools: [read]
+  thinking: low
+
+security:
+  agent: reviewer
+  model: openai-codex/gpt-5.5
+  needs: [triage]
+  task: |
+    Audit for security issues: injection, auth/authz, secret handling, unsafe
+    deserialization, and dependency CVEs. Low recall here is the worst failure mode.
+  tools: [read]
+  thinking: medium
+
+perf:
+  agent: reviewer
+  model: openai-codex/gpt-5.4-mini
+  needs: [triage]
+  task: |
+    Audit for performance anti-patterns: N+1 queries, hot-loop allocations,
+    unbounded memory, blocking I/O on hot paths.
+  tools: [read]
+  thinking: low
+
+api_stability:
+  agent: reviewer
+  model: openai-codex/gpt-5.4-mini
+  needs: [triage]
+  task: |
+    Audit the public API surface for breaking changes against the documented
+    surface. Flag renames, removed exports, and signature changes.
+  tools: [read]
+  thinking: low
+
+test_coverage:
+  agent: reviewer
+  model: openai-codex/gpt-5.4-mini
+  needs: [triage]
+  task: |
+    Audit test coverage. Identify behavior added without tests, weak assertions,
+    and missing failure-path coverage.
+  tools: [read]
+  thinking: low
+
+final_verifier:
+  agent: reviewer
+  model: openai-codex/gpt-5.5
+  role: verifier
+  needs: [security, perf, api_stability, test_coverage]
+  task: |
+    Synthesize parallel audits into a single verdict. Deduplicate, separate
+    blockers from follow-ups, and name exact next actions. If triage was `pass: false`,
+    short-circuit with a one-paragraph rejection that points at the triage output.
+    Use exactly these markdown headings:
+    ## Verdict
+    ## Blockers
+    ## Findings
+    ## Follow-ups
+  tools: [read]
+  thinking: medium
+  expectedSections: [Verdict, Blockers, Findings, Follow-ups]
