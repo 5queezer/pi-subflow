@@ -38,7 +38,7 @@
 - Create: `tests/dag-yaml.test.ts`
 - Test: `tests/extension.test.ts`
 
-- [ ] **Step 1: Write failing parser extraction tests**
+- [x] **Step 1: Write failing parser extraction tests**
 
 Create `tests/dag-yaml.test.ts`:
 
@@ -102,7 +102,7 @@ test("normalizeNestedWorkflows parses nested workflow dagYaml and loop body mapp
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -112,7 +112,7 @@ npm test -- tests/dag-yaml.test.ts
 
 Expected: fails because `src/dag-yaml.ts` does not exist.
 
-- [ ] **Step 3: Create `src/dag-yaml.ts` by moving parser helpers**
+- [x] **Step 3: Create `src/dag-yaml.ts` by moving parser helpers**
 
 Move the existing private parsing helpers from `src/extension.ts` into `src/dag-yaml.ts`. Export these types and functions:
 
@@ -172,7 +172,7 @@ function optionalThinking(value: unknown, name: string): SubagentTask["thinking"
 function isRecord(value: unknown): value is Record<string, unknown>;
 ```
 
-- [ ] **Step 4: Update `src/extension.ts` to import shared helpers**
+- [x] **Step 4: Update `src/extension.ts` to import shared helpers**
 
 At the top of `src/extension.ts`, remove `parseDocument` and `namedTask` imports if no longer used there, then add:
 
@@ -182,7 +182,7 @@ import { normalizeDagYaml, normalizeNestedWorkflows } from "./dag-yaml.js";
 
 Delete the moved helper implementations from `src/extension.ts`. Keep `type WorkflowTasksValue` only if still used; otherwise remove it.
 
-- [ ] **Step 5: Run extraction tests**
+- [x] **Step 5: Run extraction tests**
 
 Run:
 
@@ -192,7 +192,7 @@ npm test -- tests/dag-yaml.test.ts tests/extension.test.ts
 
 Expected: all selected tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/dag-yaml.ts src/extension.ts tests/dag-yaml.test.ts
@@ -210,7 +210,7 @@ git commit -m "refactor: share DAG YAML parsing"
 - Create/modify: `tests/optimizer.test.ts`
 - Create: `examples/evals/docs-consistency.yaml`
 
-- [ ] **Step 1: Write failing eval-loader tests**
+- [x] **Step 1: Write failing eval-loader tests**
 
 Create `tests/optimizer.test.ts` with the initial tests:
 
@@ -284,7 +284,7 @@ test("loadEvalSet rejects missing, ambiguous, and escaping eval set inputs", asy
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -294,7 +294,7 @@ npm test -- tests/optimizer.test.ts
 
 Expected: fails because optimizer modules do not exist.
 
-- [ ] **Step 3: Add eval-set types**
+- [x] **Step 3: Add eval-set types**
 
 Create `src/optimizer/types.ts`:
 
@@ -394,7 +394,7 @@ export interface CaseRunResult {
 }
 ```
 
-- [ ] **Step 4: Create eval schema file**
+- [x] **Step 4: Create eval schema file**
 
 Create `schemas/subflow-eval.schema.json`:
 
@@ -453,7 +453,7 @@ Create `schemas/subflow-eval.schema.json`:
 }
 ```
 
-- [ ] **Step 5: Implement `loadEvalSet`**
+- [x] **Step 5: Implement `loadEvalSet`**
 
 Create `src/optimizer/eval-set.ts`:
 
@@ -553,7 +553,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 ```
 
-- [ ] **Step 6: Add example eval set**
+- [x] **Step 6: Add example eval set**
 
 Create `examples/evals/docs-consistency.yaml`:
 
@@ -577,7 +577,7 @@ cases:
     expectedSections: [Summary, Findings, Recommendation]
 ```
 
-- [ ] **Step 7: Run eval loader tests**
+- [x] **Step 7: Run eval loader tests**
 
 Run:
 
@@ -587,7 +587,7 @@ npm test -- tests/optimizer.test.ts
 
 Expected: eval loader tests pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add schemas/subflow-eval.schema.json src/optimizer/types.ts src/optimizer/eval-set.ts tests/optimizer.test.ts examples/evals/docs-consistency.yaml
@@ -603,7 +603,7 @@ git commit -m "feat: add optimizer eval set loader"
 - Create: `src/optimizer/objective.ts`
 - Modify: `tests/optimizer.test.ts`
 
-- [ ] **Step 1: Add failing graph/objective tests**
+- [x] **Step 1: Add failing graph/objective tests**
 
 Append to `tests/optimizer.test.ts`:
 
@@ -649,7 +649,7 @@ test("computeUtility applies objective weights to aggregate metrics", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -659,7 +659,7 @@ npm test -- tests/optimizer.test.ts
 
 Expected: fails because metric modules do not exist.
 
-- [ ] **Step 3: Implement graph metrics**
+- [x] **Step 3: Implement graph metrics**
 
 Create `src/optimizer/graph-metrics.ts`:
 
@@ -723,7 +723,7 @@ function normalizeTaskCollection(tasks: SubagentTask[] | Record<string, Subagent
 }
 ```
 
-- [ ] **Step 4: Implement objective scoring**
+- [x] **Step 4: Implement objective scoring**
 
 Create `src/optimizer/objective.ts`:
 
@@ -758,7 +758,7 @@ function usageCost(usage: FlowResult["usage"] | UsageStats | undefined): number 
 }
 ```
 
-- [ ] **Step 5: Run metric tests**
+- [x] **Step 5: Run metric tests**
 
 Run:
 
@@ -768,7 +768,7 @@ npm test -- tests/optimizer.test.ts
 
 Expected: optimizer tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/optimizer/graph-metrics.ts src/optimizer/objective.ts tests/optimizer.test.ts
@@ -784,7 +784,7 @@ git commit -m "feat: score optimizer candidates"
 - Create: `src/optimizer/report.ts`
 - Modify: `tests/optimizer.test.ts`
 
-- [ ] **Step 1: Add failing evaluator/report tests**
+- [x] **Step 1: Add failing evaluator/report tests**
 
 Append to `tests/optimizer.test.ts`:
 
@@ -886,7 +886,7 @@ test("writeOptimizerReport writes JSON and formatOptimizerReport renders summary
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -896,7 +896,7 @@ npm test -- tests/optimizer.test.ts
 
 Expected: fails because evaluator/report modules do not exist.
 
-- [ ] **Step 3: Implement evaluator**
+- [x] **Step 3: Implement evaluator**
 
 Create `src/optimizer/evaluator.ts`:
 
@@ -994,7 +994,7 @@ function warnings(minRunsPerCase: number, persistenceRecommendation?: string): s
 }
 ```
 
-- [ ] **Step 4: Implement report formatting/writing**
+- [x] **Step 4: Implement report formatting/writing**
 
 Create `src/optimizer/report.ts`:
 
@@ -1040,7 +1040,7 @@ function formatCandidate(candidate: CandidateEvaluation): string {
 }
 ```
 
-- [ ] **Step 5: Run evaluator/report tests**
+- [x] **Step 5: Run evaluator/report tests**
 
 Run:
 
@@ -1050,7 +1050,7 @@ npm test -- tests/optimizer.test.ts
 
 Expected: optimizer tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/optimizer/evaluator.ts src/optimizer/report.ts tests/optimizer.test.ts
@@ -1066,7 +1066,7 @@ git commit -m "feat: evaluate optimizer dry runs"
 - Modify: `src/extension.ts`
 - Modify: `tests/extension.test.ts`
 
-- [ ] **Step 1: Update fake Pi in tests to support multiple tools**
+- [x] **Step 1: Update fake Pi in tests to support multiple tools**
 
 Modify `fakePi()` in `tests/extension.test.ts` so existing tests still use `pi.tool` and new tests can use `pi.tools.get("subflow_optimize")`:
 
@@ -1098,7 +1098,7 @@ function fakePi() {
 }
 ```
 
-- [ ] **Step 2: Add failing extension tests for optimizer registration**
+- [x] **Step 2: Add failing extension tests for optimizer registration**
 
 Append to `tests/extension.test.ts`:
 
@@ -1139,7 +1139,7 @@ test("subflow_optimize runs a baseline dry-run and writes a report", async () =>
 });
 ```
 
-- [ ] **Step 3: Run extension tests to verify failure**
+- [x] **Step 3: Run extension tests to verify failure**
 
 Run:
 
@@ -1149,7 +1149,7 @@ npm test -- tests/extension.test.ts
 
 Expected: fails because `subflow_optimize` is not registered.
 
-- [ ] **Step 4: Implement optimizer tool module**
+- [x] **Step 4: Implement optimizer tool module**
 
 Create `src/optimizer/tool.ts`:
 
@@ -1225,7 +1225,7 @@ export function defaultOptimizerRunner(_agents: Map<string, AgentDefinition>): S
 }
 ```
 
-- [ ] **Step 5: Register optimizer tool from extension**
+- [x] **Step 5: Register optimizer tool from extension**
 
 In `src/extension.ts`, import:
 
@@ -1250,7 +1250,7 @@ pi.registerTool(createSubflowOptimizeTool({
 
 If `runnerFactory` typing rejects `SubflowOptimizeToolParams`, widen `PiSubflowExtensionOptions.runnerFactory` to accept `params: SubflowToolParams | SubflowOptimizeToolParams`.
 
-- [ ] **Step 6: Run extension tests**
+- [x] **Step 6: Run extension tests**
 
 Run:
 
@@ -1260,7 +1260,7 @@ npm test -- tests/extension.test.ts
 
 Expected: extension tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/optimizer/tool.ts src/extension.ts tests/extension.test.ts
@@ -1277,7 +1277,7 @@ git commit -m "feat: register subflow optimizer tool"
 - Modify: `tests/optimizer.test.ts`
 - Modify: `tests/extension.test.ts`
 
-- [ ] **Step 1: Add failing safety tests**
+- [x] **Step 1: Add failing safety tests**
 
 Append to `tests/optimizer.test.ts`:
 
@@ -1316,7 +1316,7 @@ test("subflow_optimize rejects disallowed candidate tools before running", async
 });
 ```
 
-- [ ] **Step 2: Run safety tests to verify failure**
+- [x] **Step 2: Run safety tests to verify failure**
 
 Run:
 
@@ -1326,7 +1326,7 @@ npm test -- tests/optimizer.test.ts tests/extension.test.ts
 
 Expected: the new safety tests fail.
 
-- [ ] **Step 3: Harden workflow path resolution**
+- [x] **Step 3: Harden workflow path resolution**
 
 In `src/optimizer/evaluator.ts`, replace direct `resolve(input.cwd, input.workflowPath ?? "")` use with:
 
@@ -1348,7 +1348,7 @@ Then use:
 const source = await readFile(resolveWorkflowPath(input.cwd, input.workflowPath ?? ""), "utf8");
 ```
 
-- [ ] **Step 4: Reuse policy and tool allowlist in optimizer registration**
+- [x] **Step 4: Reuse policy and tool allowlist in optimizer registration**
 
 In `src/extension.ts`, before creating the runner for optimizer execution, normalize all baseline/candidate DAGs enough to inspect tasks and call existing validators. Add a small helper if needed:
 
@@ -1383,7 +1383,7 @@ validateExecutionPolicy({
 validateToolAllowlist(flowTasks, options.allowedTools);
 ```
 
-- [ ] **Step 5: Run safety tests**
+- [x] **Step 5: Run safety tests**
 
 Run:
 
@@ -1393,7 +1393,7 @@ npm test -- tests/optimizer.test.ts tests/extension.test.ts
 
 Expected: safety tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/optimizer/evaluator.ts src/extension.ts tests/optimizer.test.ts tests/extension.test.ts
@@ -1411,7 +1411,7 @@ git commit -m "fix: enforce optimizer safety gates"
 - Modify: `doc/adr/0003-self-optimizing-static-dags.md`
 - Modify: `tests/package.test.ts`
 
-- [ ] **Step 1: Add failing docs tests**
+- [x] **Step 1: Add failing docs tests**
 
 Append to `tests/package.test.ts`:
 
@@ -1431,7 +1431,7 @@ test("docs describe Pi-native optimizer eval sets and dry-run safety", async () 
 });
 ```
 
-- [ ] **Step 2: Run docs tests to verify failure**
+- [x] **Step 2: Run docs tests to verify failure**
 
 Run:
 
@@ -1441,7 +1441,7 @@ npm test -- tests/package.test.ts
 
 Expected: fails because docs are not updated.
 
-- [ ] **Step 3: Update README**
+- [x] **Step 3: Update README**
 
 Add to README feature list:
 
@@ -1456,7 +1456,7 @@ Add to Documentation list:
 - [`doc/wiki/Workflow-optimization.md`](doc/wiki/Workflow-optimization.md) — dry-run optimizer, eval sets, reports, and safety model
 ```
 
-- [ ] **Step 4: Create workflow optimization wiki page**
+- [x] **Step 4: Create workflow optimization wiki page**
 
 Create `doc/wiki/Workflow-optimization.md`:
 
@@ -1510,7 +1510,7 @@ Single-run comparisons are noisy. Treat one-run reports as profiling and require
 - Reports are written under `.pi/subflow/optimizer-reports/`.
 ```
 
-- [ ] **Step 5: Update roadmap and ADR**
+- [x] **Step 5: Update roadmap and ADR**
 
 In `doc/wiki/Roadmap.md`, add this sentence under Workflow optimization:
 
@@ -1524,7 +1524,7 @@ In ADR 0003 Follow-up, add:
 - Expose the MVP as a dry-run-only Pi tool named `subflow_optimize`; keep mutation as a future separate apply operation that consumes a saved report.
 ```
 
-- [ ] **Step 6: Run docs tests**
+- [x] **Step 6: Run docs tests**
 
 Run:
 
@@ -1534,7 +1534,7 @@ npm test -- tests/package.test.ts
 
 Expected: docs tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add README.md doc/wiki/Workflow-optimization.md doc/wiki/Roadmap.md doc/adr/0003-self-optimizing-static-dags.md tests/package.test.ts
@@ -1549,7 +1549,7 @@ git commit -m "docs: document subflow optimizer MVP"
 - Modify: `src/index.ts` if public exports are needed
 - Modify: tests as needed for type/import stability
 
-- [ ] **Step 1: Decide public exports**
+- [x] **Step 1: Decide public exports**
 
 Keep optimizer internals private unless tests or downstream users need them. If exporting is useful for tests and API consistency, add only stable helper exports to `src/index.ts`:
 
@@ -1560,7 +1560,7 @@ export { computeUtility, summarizeRuns } from "./optimizer/objective.js";
 export type { EvalSet, OptimizerReport } from "./optimizer/types.js";
 ```
 
-- [ ] **Step 2: Run full build and test**
+- [x] **Step 2: Run full build and test**
 
 Run:
 
@@ -1570,7 +1570,7 @@ npm run build && npm test
 
 Expected: TypeScript build succeeds and all tests pass.
 
-- [ ] **Step 3: Run Biome check and note pre-existing warnings if any**
+- [x] **Step 3: Run Biome check and note pre-existing warnings if any**
 
 Run:
 
@@ -1580,7 +1580,7 @@ npm run check
 
 Expected: no errors. If warnings exist in unrelated pre-existing files, do not expand scope unless the warning blocks commit hooks.
 
-- [ ] **Step 4: Fix any TypeScript or test failures from integration**
+- [x] **Step 4: Fix any TypeScript or test failures from integration**
 
 Common fixes:
 
@@ -1602,7 +1602,7 @@ const report = await evaluateOptimizerRun({
 });
 ```
 
-- [ ] **Step 5: Commit final integration fixes**
+- [x] **Step 5: Commit final integration fixes**
 
 If changes were needed:
 
@@ -1613,7 +1613,7 @@ git commit -m "test: verify optimizer integration"
 
 If no changes were needed, skip this commit.
 
-- [ ] **Step 6: Report final verification**
+- [x] **Step 6: Report final verification**
 
 Final response must include:
 
