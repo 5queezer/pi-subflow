@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { registerPiSubflowExtension } from "../src/extension.js";
+import { planDagStages, validateDagTasks } from "../src/index.js";
 import type { RunnerInput, SubagentResult, SubagentRunner } from "../src/index.js";
 
 class RecordingRunner implements SubagentRunner {
@@ -45,6 +46,11 @@ test("subflow extension registers a Pi tool that runs a single task and appends 
 	assert.match(history, /"mode":"single"/);
 });
 
+test("public entrypoint exports DAG validation helpers", () => {
+	assert.equal(typeof validateDagTasks, "function");
+	assert.equal(typeof planDagStages, "function");
+});
+
 test("subflow extension runs DAG tasks from YAML shorthand", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const runner = new RecordingRunner();
@@ -76,6 +82,27 @@ final-verdict:
 	assert.equal(runner.calls[0].task, "Review API exports\nInclude type exports");
 	assert.deepEqual(runner.calls[2].dependsOn, ["api-review", "tests-review"]);
 	assert.match(runner.calls[2].task, /Dependency outputs/);
+});
+
+test("subflow extension preserves relative indentation in DAG YAML block scalars", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	await pi.tool.execute("call-1", {
+		dagYaml: `
+indented-task:
+  agent: reviewer
+  task: |
+      Review this snippet:
+        if (ok) {
+          return true;
+        }
+`,
+	}, undefined, undefined, fakeCtx(cwd));
+
+	assert.equal(runner.calls[0].task, "Review this snippet:\n  if (ok) {\n    return true;\n  }");
 });
 
 test("subflow extension rejects malformed DAG YAML before running agents", async () => {
@@ -329,6 +356,37 @@ test("subflow extension provides a custom result renderer for the visible Pi too
 	assert.match(rendered, /✓ worker-1 \[worker · openrouter\/free\] → ran worker: visible/);
 });
 
+test("workflow prompt stub discovery leaves manual prompt files intact when no workflows exist", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const promptDir = join(cwd, ".pi", "subflow", "workflow-prompts");
+	await mkdir(promptDir, { recursive: true });
+	await writeFile(join(promptDir, "manual.md"), "# Manual prompt\n", "utf8");
+	const pi = fakePi();
+	registerPiSubflowExtension(pi);
+
+	const discoverResults = await pi.emit("resources_discover", { type: "resources_discover", cwd, reason: "startup" }, fakeCtx(cwd));
+
+	assert.deepEqual(discoverResults, [{}]);
+	assert.equal(await readFile(join(promptDir, "manual.md"), "utf8"), "# Manual prompt\n");
+});
+
+test("workflow prompt stub discovery preserves manual prompt files that share workflow command names", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const workflowsDir = join(cwd, ".pi", "subflow", "workflows");
+	const promptDir = join(cwd, ".pi", "subflow", "workflow-prompts");
+	await mkdir(workflowsDir, { recursive: true });
+	await mkdir(promptDir, { recursive: true });
+	await writeFile(join(workflowsDir, "code-review.yaml"), "review:\n  agent: reviewer\n  task: Review code\n", "utf8");
+	await writeFile(join(promptDir, "code-review.md"), "# Manual prompt\n", "utf8");
+	const pi = fakePi();
+	registerPiSubflowExtension(pi);
+
+	const discoverResults = await pi.emit("resources_discover", { type: "resources_discover", cwd, reason: "startup" }, fakeCtx(cwd));
+
+	assert.deepEqual(discoverResults, [{ promptPaths: [promptDir] }]);
+	assert.equal(await readFile(join(promptDir, "code-review.md"), "utf8"), "# Manual prompt\n");
+});
+
 test("subflow extension registers repo-local workflow YAML files as slash commands", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const workflowsDir = join(cwd, ".pi", "subflow", "workflows");
@@ -356,26 +414,67 @@ final-verdict:
 	const pi = fakePi();
 	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
 
+	const discoverCtx = fakeCtx(cwd);
+	const discoverResults = await pi.emit("resources_discover", { type: "resources_discover", cwd, reason: "startup" }, discoverCtx);
+	assert.deepEqual(discoverResults, [{ promptPaths: [join(cwd, ".pi", "subflow", "workflow-prompts")] }]);
+	const promptStub = await readFile(join(cwd, ".pi", "subflow", "workflow-prompts", "code-review.md"), "utf8");
+	assert.match(promptStub, /description: Run \.pi\/subflow\/workflows\/code-review\.yaml as a pi-subflow DAG/);
+	assert.match(promptStub, /^\/code-review \$ARGUMENTS$/m);
+	assert.deepEqual(discoverCtx.widgets, []);
+
 	const startupCtx = fakeCtx(cwd);
 	await pi.emit("session_start", {}, startupCtx);
 	assert(pi.commands.has("code-review"));
 	assert.equal(pi.commands.has("notes"), false);
-	assert.deepEqual(startupCtx.notifications, ["[Workflows]\n /code-review"]);
+	assert.deepEqual(startupCtx.widgets, []);
+	assert.deepEqual(startupCtx.notifications, []);
 
-	const ctx = fakeCtx(cwd);
+	const ctx = fakeCtx(cwd, [{ type: "custom_message", customType: "pi-subflow.workflow-result", content: [{ type: "text", text: "Previous docs consistency result" }, { type: "ignored", value: 1 }], display: true }]);
 	await pi.commands.get("code-review").handler("Investigate auth regression", ctx);
 
 	assert.deepEqual(runnerCalls.map((call) => call.name), ["api-review", "final-verdict"]);
 	assert.match(runnerCalls[0].task, /Workflow command arguments:\nInvestigate auth regression/);
 	assert.match(runnerCalls[1].task, /Workflow command arguments:\nInvestigate auth regression/);
+	assert.match(runnerCalls[0].task, /Recent conversation context:/);
+	assert.match(runnerCalls[0].task, /Previous docs consistency result/);
 	assert.deepEqual(runnerCalls[1].dependsOn, ["api-review"]);
-	assert.equal(ctx.editors.length, 1);
-	assert.equal(ctx.editors[0].title, "Workflow /code-review result");
-	assert.match(ctx.editors[0].prefill, /subflow · dag · completed/);
-	assert.match(ctx.editors[0].prefill, /## Required fixes\n\nNone\./);
-	assert.match(ctx.editors[0].prefill, /## Optional polish\n\nClarify examples\./);
+	assert.deepEqual(ctx.editors, []);
+	assert.deepEqual(ctx.notifications, ["Workflow /code-review completed"]);
+	assert.equal(pi.messages.length, 1);
+	assert.equal(pi.messages[0].message.customType, "pi-subflow.workflow-result");
+	assert.equal(pi.messages[0].options?.deliverAs, "followUp");
+	assert.equal(pi.messages[0].options?.triggerTurn, false);
+	assert.match(pi.messages[0].message.content, /Workflow \/code-review completed/);
+	assert.match(pi.messages[0].message.content, /subflow · dag · completed/);
+	assert.match(pi.messages[0].message.content, /## Required fixes\n\nNone\./);
+	assert.match(pi.messages[0].message.content, /## Optional polish\n\nClarify examples\./);
 	const history = await readFile(join(cwd, ".pi", "subflow", "runs.jsonl"), "utf8");
 	assert.match(history, /"mode":"dag"/);
+});
+
+test("workflow slash command registration refreshes when a command stem switches yaml filenames", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const workflowsDir = join(cwd, ".pi", "subflow", "workflows");
+	await mkdir(workflowsDir, { recursive: true });
+	await writeFile(join(workflowsDir, "same.yaml"), "first:\n  agent: reviewer\n  task: From yaml\n", "utf8");
+	const runnerCalls: RunnerInput[] = [];
+	const runner: SubagentRunner = {
+		async run(input) {
+			runnerCalls.push(input);
+			return { name: input.name, agent: input.agent, task: input.task, role: input.role, model: input.model, dependsOn: input.dependsOn, status: "completed", output: `ran ${input.name}`, usage: {} };
+		},
+	};
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	await pi.emit("session_start", {}, fakeCtx(cwd));
+	await rm(join(workflowsDir, "same.yaml"));
+	await writeFile(join(workflowsDir, "same.yml"), "second:\n  agent: reviewer\n  task: From yml\n", "utf8");
+	await pi.emit("session_start", {}, fakeCtx(cwd));
+	await pi.commands.get("same").handler("", fakeCtx(cwd));
+
+	assert.deepEqual(runnerCalls.map((call) => call.name), ["second"]);
+	assert.match(runnerCalls[0].task, /From yml/);
 });
 
 test("repo-local workflow slash commands reject cwd values outside the project", async () => {
@@ -451,7 +550,7 @@ function fakeRenderContext() {
 }
 
 function fakePi() {
-	const state: { tool?: any; commands: Map<string, any>; handlers: Map<string, any[]> } = { commands: new Map(), handlers: new Map() };
+	const state: { tool?: any; commands: Map<string, any>; handlers: Map<string, any[]>; messages: Array<{ message: any; options: any }> } = { commands: new Map(), handlers: new Map(), messages: [] };
 	return Object.assign(state, {
 		registerTool(tool: any) {
 			state.tool = tool;
@@ -459,18 +558,23 @@ function fakePi() {
 		registerCommand(name: string, command: any) {
 			state.commands.set(name, command);
 		},
+		sendMessage(message: any, options: any) {
+			state.messages.push({ message, options });
+		},
 		on(event: string, handler: any) {
 			const handlers = state.handlers.get(event) ?? [];
 			handlers.push(handler);
 			state.handlers.set(event, handlers);
 		},
 		async emit(event: string, payload: unknown, ctx: unknown) {
-			for (const handler of state.handlers.get(event) ?? []) await handler(payload, ctx);
+			const results = [];
+			for (const handler of state.handlers.get(event) ?? []) results.push(await handler(payload, ctx));
+			return results;
 		},
 	});
 }
 
-function fakeCtx(cwd: string) {
+function fakeCtx(cwd: string, branchEntries: any[] = []) {
 	const confirmations: string[] = [];
 	const widgets: Array<{ key: string; value: unknown }> = [];
 	const customCalls: Array<{ component: any; options: unknown; renderRequests: number; closed: boolean }> = [];
@@ -478,6 +582,7 @@ function fakeCtx(cwd: string) {
 	const notifications: string[] = [];
 	return {
 		cwd,
+		sessionManager: { getBranch: () => branchEntries },
 		hasUI: true,
 		signal: undefined,
 		confirmations,

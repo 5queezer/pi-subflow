@@ -115,6 +115,23 @@ final-verdict:
 
 The shorthand is only an authoring format at the Pi tool boundary; internally it becomes the same `tasks` array shown above. It intentionally supports a small LLM-friendly subset: task mappings, scalar strings, inline string arrays such as `[read, bash]`, one nested `jsonSchema.required` mapping, and `|`/`>` block strings. YAML anchors, aliases, and advanced tags are not supported.
 
+Supported task fields:
+
+| Field | Type / values | Notes |
+| --- | --- | --- |
+| `name` | string | Required for DAG task arrays; implicit from each `dagYaml` top-level key. |
+| `agent` | string | Required agent name. |
+| `task` | string | Required prompt text for the subagent. |
+| `cwd` | string | Optional working directory; workflow slash commands reject absolute paths and `..`. |
+| `dependsOn` / `needs` | string[] | DAG dependencies; `needs` is a `dagYaml` alias and cannot be combined with `dependsOn`. |
+| `role` | `worker` \| `verifier` | Omit for normal workers; verifier tasks receive dependency outputs. |
+| `authority` | `read_only` \| `internal_mutation` \| `external_side_effect` | Drives retry and policy behavior. |
+| `tools` | string[] | Minimum tool subset for the subagent. |
+| `model` | string | Model identifier passed through the Pi model registry by the SDK runner. |
+| `thinking` | `off` \| `minimal` \| `low` \| `medium` \| `high` \| `xhigh` | Can be set globally, per task, or in agent frontmatter. |
+| `expectedSections` | string[] | Markdown headings that must appear in successful task output. |
+| `jsonSchema.required` | string[] | Minimal JSON-output validation: task output must parse as JSON and named required fields must be present. |
+
 DAG validation happens before execution. Invalid graphs fail before any subagent runs:
 
 | Invalid DAG | Error |
@@ -242,7 +259,7 @@ To make a template available as an immediate slash command, copy it into the rep
 .pi/subflow/workflows/docs-consistency.yaml  ->  /docs-consistency
 ```
 
-Running one of these commands executes the DAG immediately, without asking the LLM to call the `subflow` tool. At session start the extension also shows the discovered commands in a dedicated `[Workflows]` startup section. Text after the slash command is injected into each workflow task as `Workflow command arguments`, so commands such as `/bug-investigation failing npm test output...` give every subagent the user's request. When the DAG finishes, Pi shows the usual completion notification and opens the final subflow summary in an editor for review. Project workflow commands resolve both user and project-local agents, still ask for the existing project-agent and external-side-effect confirmations, reject task `cwd` values that are absolute or contain `..`, and append history to `.pi/subflow/runs.jsonl`. Run `/reload` after adding, removing, or renaming workflow files so Pi can refresh the command list.
+Running one of these commands executes the DAG immediately, without asking the LLM to call the `subflow` tool. The extension also generates lightweight prompt-template stubs under `.pi/subflow/workflow-prompts/` for workflow files that do not already have a manually authored prompt file with the same name, then returns that directory from `resources_discover.promptPaths`. The stable contract is that repo-local `.pi/subflow/workflows/*.yaml` and `.pi/subflow/workflows/*.yml` files with safe basenames are registered by the extension during session startup and can generate prompt stubs; whether those prompts or commands are visible in Pi's startup prompt list, slash UI, or autocomplete depends on Pi prompt discovery and session command registration. Only generated stubs carrying the pi-subflow marker are overwritten or removed during refresh; manually authored prompt files in that directory are left intact. Recent chat history is prepended to every workflow task as `Recent conversation context` so follow-up workflows can see earlier workflow results and user discussion. Text after the slash command is also prepended as `Workflow command arguments`; empty command arguments become `(none provided)`. Commands such as `/bug-investigation failing npm test output...` give every subagent the user's request. When the DAG finishes, Pi shows the usual completion notification, adds a concise summary plus final output to chat history, and appends the full result to `.pi/subflow/runs.jsonl`. Project workflow commands resolve both user and project-local agents, still ask for the existing project-agent and external-side-effect confirmations, and reject task `cwd` values that are absolute or contain `..`. Run `/reload` after adding, removing, or renaming workflow files so Pi can refresh the command list.
 
 | Template | Use when | Path |
 | --- | --- | --- |
@@ -329,7 +346,7 @@ Embedders can override the allowlist through `registerPiSubflowExtension(..., { 
 
 ### Models and thinking
 
-Set `model` and `thinking` globally, per task, or in agent frontmatter. Explicit task values win over agent defaults.
+Set `model` and `thinking` globally, per task, or in agent frontmatter. Explicit task values win over agent defaults. Supported `thinking` values are `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`.
 
 ```json
 {

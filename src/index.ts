@@ -24,5 +24,6 @@ export { runSingle } from "./flows/single.js";
 export { runChain } from "./flows/chain.js";
 export { runParallel } from "./flows/parallel.js";
 export { runDag } from "./flows/dag.js";
+export { validateDagTasks, planDagStages } from "./flows/dag-validation.js";
 export { registerPiSubflowExtension, default as piSubflowExtension } from "./extension.js";
 export type { PiSubflowExtensionOptions } from "./extension.js";

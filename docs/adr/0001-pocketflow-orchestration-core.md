@@ -8,56 +8,44 @@ Accepted
 
 `pi-subflow` is a sibling prototype for recreating the Pi Subagent Extension's workflow layer with clearer boundaries. The existing extension combines Pi tool registration, agent discovery, SDK-based agent execution, policy checks, validation, tracing, and workflow orchestration in one implementation.
 
-We want a design that keeps Pi-specific integration replaceable while making the orchestration behavior easier to test and evolve.
+We want a design that keeps Pi-specific integration replaceable while making orchestration behavior easier to test and evolve. The core needs to support single-task, chain, parallel, and DAG execution today, while leaving room for verifier repair loops, adaptive routing, and future workflow forms without exposing Pi UI or SDK details as orchestration API.
+
+Options considered:
+
+- Custom TypeScript orchestration only: lowest dependency count and maximum control, but it risks accumulating ad hoc abstractions as workflows become more capable.
+- A general graph/workflow library: useful for richer graph algorithms, but heavier than the current static DAG needs and likely to leak library concepts into public APIs too early.
+- PocketFlow: a small workflow-oriented dependency that gives the project a vocabulary for nodes/flows while still allowing Pi-specific validation, policy, and runner boundaries to stay explicit.
 
 ## Decision
 
-Use `pocketflow` as the workflow/orchestration dependency for `pi-subflow`.
+Use `pocketflow` as the workflow/orchestration dependency for `pi-subflow`, but keep it as an internal implementation detail rather than a public API commitment.
 
-The project will keep execution behind a `SubagentRunner` interface:
+Durable rationale:
 
-- `MockSubagentRunner` supports deterministic tests and local development.
-- `PiSdkRunner` is the real Pi adapter. It creates a fresh SDK `createAgentSession()` with `SessionManager.inMemory()` per subagent run, preserving subagent context isolation without spawning a full `pi` process. When supplied with discovered agent definitions, it includes the selected agent's description, tools, model/thinking hints, and markdown instructions in the subagent task prompt, with agent markdown quoted as untrusted context below system/caller instructions. Explicit task `tools` values are passed to the SDK session as the active tool subset; omitted tools let Pi create its default tool set for the subagent cwd. Explicit model selections are resolved through the Pi model registry and fail fast if unknown, and tests can inject `modelRegistry` / `createAgentSession` seams.
+- PocketFlow is lightweight enough for a Pi extension prototype and avoids committing to a large workflow engine before the feature set justifies one.
+- It provides a workflow abstraction layer above hand-written control flow, reducing the chance that retries, verifier repair, budget checks, and future routing behavior become tangled with Pi extension registration.
+- It lets the project separate orchestration concepts from execution details: subagent execution remains behind `SubagentRunner`, and validation remains behind the DAG validation boundary.
+- It keeps migration options open. If conditional branches, nested workflows, dynamic dependencies, or graph visualization outgrow PocketFlow or the current custom validator, internals can change without breaking callers.
 
-Flow modules expose simple TypeScript functions for consumers:
+Stable architecture decisions:
 
-- `runSingle`
-- `runChain`
-- `runParallel`
-- `runDag`
-
-The package also exposes a Pi extension entry point via `registerPiSubflowExtension` and the default extension export. The extension registers a `subflow` tool that dispatches to the orchestration APIs, accepts a `dagYaml` YAML shorthand for concise LLM-authored DAGs and normalizes it to the existing task array shape, displays a live progress widget in interactive sessions, owns its visible tool card rendering via `renderShell: "self"`, returns compact summary cards with task-level success/error lines, agent/model metadata, and labeled DAG graph structure derived from structured dependency metadata, and records JSONL history.
-
-Repo-local workflow files are a Pi extension feature, not a core orchestration API. The extension scans `.pi/subflow/workflows/*.yaml` and `.pi/subflow/workflows/*.yml` files whose basenames are safe command names, registers slash commands such as `/code-review`, and generates marked prompt-template stubs under `.pi/subflow/workflow-prompts/`. Those stubs are returned from `resources_discover.promptPaths`; in Pi, that prompt-path discovery is the mechanism that makes generated workflow entries visible in the native `[Prompts]` startup section and slash-command autocomplete. Slash-command registration is still performed during `session_start`, so prompt stubs advertise the commands while the registered command handler executes them. Prompt-stub cleanup is intentionally limited to files carrying the generated marker so manual prompt files are not removed.
-
-Workflow command arguments are prompt content. Text after the slash command is trimmed, replaced with `(none provided)` when empty, and prepended to every workflow task body as:
-
-```text
-Workflow command arguments:
-<arguments>
-
-Workflow task:
-<original task>
-```
-
-The arguments are not task metadata, are not interpolated into YAML, are not shell-expanded, and are not separately rendered as user-visible output except insofar as they appear in subagent prompts or downstream subagent output. Workflow commands execute the DAG immediately through the same policy, agent discovery, progress, and history path as the tool, show a completion notification, add a concise summary plus final output to chat history, use both user and project-local agents, and reject task `cwd` values that are absolute or contain `..`. An interactive run-history browser remains planned, but `/subflow-runs` is not registered until its TUI behavior is stable across Pi terminals.
-
-Stable public API guarantees:
-
-- The exported orchestration functions remain `runSingle`, `runChain`, `runParallel`, and `runDag`, with execution hidden behind `SubagentRunner`.
-- The Pi extension entry points remain `registerPiSubflowExtension` and the default extension export.
+- Execution is hidden behind a `SubagentRunner` interface. Test runners and real Pi-backed runners are interchangeable from the workflow functions' perspective.
+- Flow modules expose simple TypeScript functions: `runSingle`, `runChain`, `runParallel`, and `runDag`.
+- The Pi extension entry points are `registerPiSubflowExtension` and the default extension export.
 - The `subflow` tool supports single, chain, parallel, and DAG modes, including `dagYaml` normalization and `needs` as an alias for `dependsOn`.
-- DAG task names are validated as unique, dependency failures skip downstream tasks, verifier fan-in is part of DAG semantics, and task results carry structured `dependsOn` metadata so renderers and history views do not infer graph edges from injected prompt text.
-- Workflow command arguments are prepended to task prompt content using the format above.
-- PocketFlow primitives and future workflow-IR internals are non-goals for the public API; they may be used internally, but callers should not depend on PocketFlow-specific or graph-library-specific state.
+- DAG validation happens before execution. Task names are validated as unique, dependency failures skip downstream tasks, verifier fan-in is part of DAG semantics, and results carry structured `dependsOn` metadata so renderers and history views do not infer graph edges from prompt text.
+- Repo-local workflow files are a Pi extension feature, not a core orchestration API. Safe `.pi/subflow/workflows/*.yaml` and `.pi/subflow/workflows/*.yml` files are registered by the extension during session startup and may generate prompt stubs for Pi prompt discovery; exact prompt-discovery mechanics, slash UI/autocomplete visibility, and session command registration behavior are integration details, not core orchestration guarantees.
+- Workflow command arguments and recent conversation context are treated as prompt content prepended to workflow task bodies. They are not task metadata, are not interpolated into YAML, and are not shell-expanded.
+- PocketFlow primitives and future workflow-IR internals are non-goals for the public API; callers should not depend on PocketFlow-specific or graph-library-specific state.
 
-Current runner and extension implementation details, intentionally not stronger API guarantees:
+Current runner and extension implementation notes, intentionally weaker than architecture guarantees:
 
-- `PiSdkRunner` currently creates a fresh SDK session with in-memory session state per subagent run and passes explicit task `tools` as the active SDK tool subset.
+- The real Pi runner currently creates isolated SDK sessions for each subagent run and passes explicit task tool/model/thinking/cwd settings through the Pi SDK where supported.
 - Agent definitions currently contribute description, markdown instructions, and default `tools`, `model`, and `thinking` hints unless task fields override them.
 - Explicit tool names are currently checked against a runtime allowlist before SDK session creation.
 - Extension-created tasks currently default to the active Pi cwd unless they set `cwd` explicitly.
 - Retry handling, including the current rule that mutating and external-side-effect tasks are not retried, is implementation policy rather than a stable core API shape.
+- Workflow prompt stubs are implementation aids for Pi prompt discovery. Generated stubs are marked and may be refreshed or removed; manually authored prompt files are preserved.
 - `dependsOn` currently drives deterministic static DAG stage planning; richer workflow forms should pass through the validation boundary rather than leaking planner internals.
 
 Supporting modules expose Pi-extension-adjacent capabilities without coupling them to tool registration:
@@ -73,10 +61,10 @@ The DAG validation boundary is an internal workflow-IR seam: it should normalize
 
 Positive:
 
-- Workflow logic remains separated from Pi extension registration and TUI concerns, while a thin extension adapter now makes the core usable from Pi with live progress and readable final summaries.
+- Workflow logic remains separated from Pi extension registration and TUI concerns, while a thin extension adapter makes the core usable from Pi with live progress and readable final summaries.
 - Single, chain, parallel, DAG, verifier, retry, timeout, validation, budget, cancellation, tool allowlisting, and trace behavior can be tested without launching Pi subprocesses.
-- SDK-based execution avoids subprocess overhead while keeping isolated per-subagent sessions and can still honor named agent instructions through the `agentDefinitions` runner option.
-- The design leaves room for future adaptive routing and verifier-repair loops.
+- SDK-based execution avoids subprocess overhead while keeping isolated per-subagent sessions and can still honor named agent instructions through the runner boundary.
+- The design leaves room for future adaptive routing and verifier-repair loops without turning Pi extension glue into the orchestration layer.
 
 Tradeoffs:
 

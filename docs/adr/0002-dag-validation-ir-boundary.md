@@ -12,7 +12,7 @@ The current DAG implementation is still intentionally small, but future project 
 
 ADR 0001 establishes the public `runDag` contract and extension behavior: DAG execution should validate task names and dependencies, execute deterministic dependency stages, skip downstream tasks after dependency failures, preserve structured `dependsOn` metadata for rendering/history, and keep PocketFlow or workflow-IR internals out of public APIs. The validation/planning boundary described here sits inside that contract. It prepares normalized tasks and planned stages for `runDag`; it does not replace `runDag`, change history or rendering formats, or expose planner internals to extension callers.
 
-Recent research found reusable npm options for schema validation (`typebox`, `ajv`, `zod`, `valibot`) and graph operations (`graphlib`, `dependency-graph`, `topo-sort`). The project already uses TypeBox-style schemas at the Pi extension boundary, while the current graph logic is small enough that adding a graph library immediately would add more maintenance surface than benefit.
+Package evaluation used two criteria: keep structural input validation close to the Pi tool schema, and avoid introducing a graph dependency until graph behavior exceeds simple static DAG validation. The outcome is to keep TypeBox-style schemas at the Pi extension boundary for shape and enum checks, and to keep custom dependency validation/planning for now. General graph packages such as `graphlib`, `dependency-graph`, or `topo-sort` remain candidates only if conditional branches, nested workflows, dynamic dependencies, graph visualization, or more complex graph diagnostics make custom logic a liability.
 
 ## Decision
 
