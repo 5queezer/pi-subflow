@@ -7,6 +7,7 @@ import {
 	runParallel,
 	runSingle,
 } from "../src/index.js";
+import { validateDagTasks } from "../src/flows/dag-validation.js";
 import type { RunnerInput, SubagentResult, SubagentRunner } from "../src/index.js";
 
 const task = (name: string, taskText = name) => ({
@@ -89,6 +90,21 @@ test("runDag executes dependencies before verifier and injects dependency output
 	assert.match(seen[2], /front/);
 	assert.match(seen[2], /result:frontend/);
 	assert.deepEqual(result.results[2].dependsOn, ["front", "back"]);
+});
+
+test("validateDagTasks normalizes verifier fan-in before execution", () => {
+	const normalized = validateDagTasks([
+		task("front", "frontend"),
+		task("back", "backend"),
+		{ name: "verify", agent: "mock", role: "verifier" as const, task: "verify" },
+	]);
+
+	assert.deepEqual(normalized.tasks.map((item) => ({ name: item.name, dependsOn: item.dependsOn })), [
+		{ name: "front", dependsOn: [] },
+		{ name: "back", dependsOn: [] },
+		{ name: "verify", dependsOn: ["front", "back"] },
+	]);
+	assert.deepEqual(normalized.issues, []);
 });
 
 test("runDag rejects duplicate task names before execution", async () => {
