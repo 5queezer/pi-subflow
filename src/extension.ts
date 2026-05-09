@@ -17,6 +17,7 @@ import { runSingle } from "./flows/single.js";
 export interface PiSubflowExtensionOptions {
 	userDir?: string;
 	projectDir?: string;
+	userSubflowDir?: string;
 	historyPath?: string | ((ctx: ExtensionContext) => string);
 	allowedTools?: string[];
 	runnerFactory?: (input: { agents: Map<string, AgentDefinition>; ctx: ExtensionContext; params: SubflowToolParams }) => SubagentRunner;
@@ -88,7 +89,7 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			"Use subflow parallel mode when 2+ independent tasks can run concurrently and do not depend on each other.",
 			"Use subflow DAG mode when tasks have explicit dependsOn relationships; set role: \"verifier\" for synthesis or validation nodes that need dependency outputs.",
 			"For concise LLM-authored DAGs, prefer dagYaml: a small YAML subset whose keys are task names; use needs as an alias for dependsOn.",
-			"Repo-local .pi/subflow/workflows/*.yaml or *.yml files with safe basenames are registered by the extension during session startup as commands named after the file stem, such as /code-review; generated prompt stubs are written only when no manual prompt file with the same name exists (or when replacing a marked generated stub), while Pi UI/autocomplete visibility depends on prompt discovery and session command registration.",
+			"Repo-local .pi/subflow/workflows/*.yaml or *.yml and user ~/.pi/agent/subflow/workflows/*.yaml or *.yml files with safe basenames are registered by the extension during session startup as commands named after the file stem, such as /code-review; generated prompt stubs are written under .pi/subflow/prompts or ~/.pi/agent/subflow/prompts only when no manual prompt file with the same name exists (or when replacing a marked generated stub), while Pi UI/autocomplete visibility depends on prompt discovery and session command registration.",
 			"Workflow commands prepend recent chat history plus text after the command to every workflow task, use \"(none provided)\" for empty arguments, and report completion with a notification plus a chat-history result message.",
 			"For subflow task roles, only use \"worker\" or \"verifier\". Omit role to default to worker; do not invent roles like \"researcher\".",
 			"For subflow DAGs, task names must be unique; missing dependencies, self-dependencies, and dependency cycles are rejected before execution.",
@@ -133,19 +134,21 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 
 	const registeredWorkflowCommands = new Map<string, string>();
 	pi.on("resources_discover", async (event) => {
-		const workflows = await discoverWorkflowCommands(event.cwd);
-		const promptPath = await writeWorkflowPromptStubs(event.cwd, workflows);
-		return promptPath ? { promptPaths: [promptPath] } : {};
+		const userSubflowDir = resolveUserSubflowDir(options);
+		const workflows = await discoverWorkflowCommands(event.cwd, userSubflowDir);
+		const promptPaths = await writeWorkflowPromptStubs(workflows, workflowPromptDirs(event.cwd, userSubflowDir));
+		return promptPaths.length > 0 ? { promptPaths } : {};
 	});
 	pi.on("session_start", async (_event, ctx) => {
-		const workflows = await discoverWorkflowCommands(ctx.cwd);
-		for (const { commandName, entry } of workflows) {
-			if (registeredWorkflowCommands.get(commandName) === entry) continue;
-			registeredWorkflowCommands.set(commandName, entry);
+		const workflows = chooseWorkflowCommands(await discoverWorkflowCommands(ctx.cwd, resolveUserSubflowDir(options)));
+		for (const workflow of workflows) {
+			const { commandName } = workflow;
+			if (registeredWorkflowCommands.get(commandName) === workflow.path) continue;
+			registeredWorkflowCommands.set(commandName, workflow.path);
 			pi.registerCommand(commandName, {
-				description: `Run .pi/subflow/workflows/${entry} as a pi-subflow DAG`,
+				description: `Run ${workflow.displayPath} as a pi-subflow DAG`,
 				handler: async (args, commandCtx) => {
-					const dagYaml = await readFile(join(commandCtx.cwd, ".pi", "subflow", "workflows", entry), "utf8");
+					const dagYaml = await readFile(workflow.path, "utf8");
 					const workflowParams = normalizeDagYaml({ dagYaml, agentScope: "both" });
 					const { dagYaml: _dagYaml, ...normalizedParams } = workflowParams;
 					const executableParams = addWorkflowCommandArguments(normalizedParams, args, formatRecentConversationContext(commandCtx));
@@ -222,10 +225,43 @@ async function executeSubflow(rawParams: SubflowToolParams, ctx: ExtensionContex
 interface WorkflowCommandFile {
 	commandName: string;
 	entry: string;
+	path: string;
+	promptDir: string;
+	displayPath: string;
+	scope: "project" | "user";
 }
 
-async function discoverWorkflowCommands(cwd: string): Promise<WorkflowCommandFile[]> {
-	const workflowDir = join(cwd, ".pi", "subflow", "workflows");
+function resolveUserSubflowDir(options: PiSubflowExtensionOptions): string {
+	return options.userSubflowDir ?? join(homedir(), ".pi", "agent", "subflow");
+}
+
+function workflowPromptDirs(cwd: string, userSubflowDir: string): string[] {
+	return [join(cwd, ".pi", "subflow", "prompts"), join(userSubflowDir, "prompts")];
+}
+
+async function discoverWorkflowCommands(cwd: string, userSubflowDir: string): Promise<WorkflowCommandFile[]> {
+	const projectWorkflows = await discoverWorkflowCommandsInDir({
+		workflowDir: join(cwd, ".pi", "subflow", "workflows"),
+		promptDir: join(cwd, ".pi", "subflow", "prompts"),
+		displayPrefix: ".pi/subflow/workflows",
+		scope: "project",
+	});
+	const userWorkflows = await discoverWorkflowCommandsInDir({
+		workflowDir: join(userSubflowDir, "workflows"),
+		promptDir: join(userSubflowDir, "prompts"),
+		displayPrefix: "~/.pi/agent/subflow/workflows",
+		scope: "user",
+	});
+	return [...projectWorkflows, ...userWorkflows];
+}
+
+function chooseWorkflowCommands(workflows: WorkflowCommandFile[]): WorkflowCommandFile[] {
+	const byCommand = new Map<string, WorkflowCommandFile>();
+	for (const workflow of workflows) if (!byCommand.has(workflow.commandName)) byCommand.set(workflow.commandName, workflow);
+	return Array.from(byCommand.values());
+}
+
+async function discoverWorkflowCommandsInDir({ workflowDir, promptDir, displayPrefix, scope }: { workflowDir: string; promptDir: string; displayPrefix: string; scope: WorkflowCommandFile["scope"] }): Promise<WorkflowCommandFile[]> {
 	let entries: string[];
 	try {
 		entries = await readdir(workflowDir);
@@ -237,29 +273,35 @@ async function discoverWorkflowCommands(cwd: string): Promise<WorkflowCommandFil
 		const extension = extname(entry);
 		if (extension !== ".yaml" && extension !== ".yml") return [];
 		const commandName = basename(entry, extension);
-		return isSafeWorkflowCommandName(commandName) ? [{ commandName, entry }] : [];
+		return isSafeWorkflowCommandName(commandName) ? [{ commandName, entry, path: join(workflowDir, entry), promptDir, displayPath: `${displayPrefix}/${entry}`, scope }] : [];
 	});
 }
 
-async function writeWorkflowPromptStubs(cwd: string, workflows: WorkflowCommandFile[]): Promise<string | undefined> {
-	const promptDir = join(cwd, ".pi", "subflow", "workflow-prompts");
-	const activeFiles = new Set(workflows.map(({ commandName }) => `${commandName}.md`));
-	let entries: string[] = [];
-	try {
-		entries = await readdir(promptDir);
-	} catch (error) {
-		if (!isNodeError(error) || error.code !== "ENOENT") throw error;
+async function writeWorkflowPromptStubs(workflows: WorkflowCommandFile[], knownPromptDirs: string[]): Promise<string[]> {
+	const workflowsByPromptDir = new Map<string, WorkflowCommandFile[]>();
+	for (const promptDir of knownPromptDirs) workflowsByPromptDir.set(promptDir, []);
+	for (const workflow of workflows) workflowsByPromptDir.set(workflow.promptDir, [...(workflowsByPromptDir.get(workflow.promptDir) ?? []), workflow]);
+	const promptPaths: string[] = [];
+	for (const [promptDir, promptDirWorkflows] of workflowsByPromptDir) {
+		const activeFiles = new Set(promptDirWorkflows.map(({ commandName }) => `${commandName}.md`));
+		let entries: string[] = [];
+		try {
+			entries = await readdir(promptDir);
+		} catch (error) {
+			if (!isNodeError(error) || error.code !== "ENOENT") throw error;
+		}
+		for (const entry of entries) {
+			if (entry.endsWith(".md") && !activeFiles.has(entry) && await isGeneratedWorkflowPromptStub(join(promptDir, entry))) await rm(join(promptDir, entry), { force: true });
+		}
+		if (promptDirWorkflows.length === 0) continue;
+		await mkdir(promptDir, { recursive: true });
+		for (const workflow of promptDirWorkflows) {
+			const promptPath = join(promptDir, `${workflow.commandName}.md`);
+			if (await shouldWriteWorkflowPromptStub(promptPath)) await writeFile(promptPath, workflowPromptStubContent(workflow), "utf8");
+		}
+		promptPaths.push(promptDir);
 	}
-	for (const entry of entries) {
-		if (entry.endsWith(".md") && !activeFiles.has(entry) && await isGeneratedWorkflowPromptStub(join(promptDir, entry))) await rm(join(promptDir, entry), { force: true });
-	}
-	if (workflows.length === 0) return undefined;
-	await mkdir(promptDir, { recursive: true });
-	for (const workflow of workflows) {
-		const promptPath = join(promptDir, `${workflow.commandName}.md`);
-		if (await shouldWriteWorkflowPromptStub(promptPath)) await writeFile(promptPath, workflowPromptStubContent(workflow), "utf8");
-	}
-	return promptDir;
+	return promptPaths;
 }
 
 async function shouldWriteWorkflowPromptStub(path: string): Promise<boolean> {
@@ -280,8 +322,8 @@ async function isGeneratedWorkflowPromptStub(path: string): Promise<boolean> {
 	}
 }
 
-function workflowPromptStubContent({ commandName, entry }: WorkflowCommandFile): string {
-	return [GENERATED_PROMPT_STUB_MARKER, `---`, `description: Run .pi/subflow/workflows/${entry} as a pi-subflow DAG`, `argument-hint: [workflow arguments]`, `---`, `/${commandName} $ARGUMENTS`, ""].join("\n");
+function workflowPromptStubContent({ commandName, displayPath }: WorkflowCommandFile): string {
+	return [GENERATED_PROMPT_STUB_MARKER, `---`, `description: Run ${displayPath} as a pi-subflow DAG`, `argument-hint: [workflow arguments]`, `---`, `/${commandName} $ARGUMENTS`, ""].join("\n");
 }
 
 function formatWorkflowChatResult(commandName: string, result: Awaited<ReturnType<typeof executeSubflow>>): string {

@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=../../schemas/subflow-dag.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/5queezer/pi-subflow/refs/heads/master/schemas/subflow-dag.schema.json
 # Copy this whole file into the subflow tool's dagYaml parameter.
 # Rename agents to match your local Pi agent definitions.
 api-review:

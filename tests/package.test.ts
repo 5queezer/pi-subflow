@@ -74,6 +74,6 @@ test("workflow templates advertise the DAG YAML schema", async () => {
 
 	for (const name of ["code-review", "implementation-planning", "research-synthesis", "docs-consistency", "bug-investigation"]) {
 		const template = await readFile(`examples/workflows/${name}.yaml`, "utf8");
-		assert.equal(template.split(/\r?\n/, 1)[0], "# yaml-language-server: $schema=../../schemas/subflow-dag.schema.json");
+		assert.equal(template.split(/\r?\n/, 1)[0], "# yaml-language-server: $schema=https://raw.githubusercontent.com/5queezer/pi-subflow/refs/heads/master/schemas/subflow-dag.schema.json");
 	}
 });

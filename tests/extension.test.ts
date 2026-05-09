@@ -358,7 +358,7 @@ test("subflow extension provides a custom result renderer for the visible Pi too
 
 test("workflow prompt stub discovery leaves manual prompt files intact when no workflows exist", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
-	const promptDir = join(cwd, ".pi", "subflow", "workflow-prompts");
+	const promptDir = join(cwd, ".pi", "subflow", "prompts");
 	await mkdir(promptDir, { recursive: true });
 	await writeFile(join(promptDir, "manual.md"), "# Manual prompt\n", "utf8");
 	const pi = fakePi();
@@ -373,7 +373,7 @@ test("workflow prompt stub discovery leaves manual prompt files intact when no w
 test("workflow prompt stub discovery preserves manual prompt files that share workflow command names", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const workflowsDir = join(cwd, ".pi", "subflow", "workflows");
-	const promptDir = join(cwd, ".pi", "subflow", "workflow-prompts");
+	const promptDir = join(cwd, ".pi", "subflow", "prompts");
 	await mkdir(workflowsDir, { recursive: true });
 	await mkdir(promptDir, { recursive: true });
 	await writeFile(join(workflowsDir, "code-review.yaml"), "review:\n  agent: reviewer\n  task: Review code\n", "utf8");
@@ -416,8 +416,8 @@ final-verdict:
 
 	const discoverCtx = fakeCtx(cwd);
 	const discoverResults = await pi.emit("resources_discover", { type: "resources_discover", cwd, reason: "startup" }, discoverCtx);
-	assert.deepEqual(discoverResults, [{ promptPaths: [join(cwd, ".pi", "subflow", "workflow-prompts")] }]);
-	const promptStub = await readFile(join(cwd, ".pi", "subflow", "workflow-prompts", "code-review.md"), "utf8");
+	assert.deepEqual(discoverResults, [{ promptPaths: [join(cwd, ".pi", "subflow", "prompts")] }]);
+	const promptStub = await readFile(join(cwd, ".pi", "subflow", "prompts", "code-review.md"), "utf8");
 	assert.match(promptStub, /description: Run \.pi\/subflow\/workflows\/code-review\.yaml as a pi-subflow DAG/);
 	assert.match(promptStub, /^\/code-review \$ARGUMENTS$/m);
 	assert.deepEqual(discoverCtx.widgets, []);
@@ -450,6 +450,93 @@ final-verdict:
 	assert.match(pi.messages[0].message.content, /## Optional polish\n\nClarify examples\./);
 	const history = await readFile(join(cwd, ".pi", "subflow", "runs.jsonl"), "utf8");
 	assert.match(history, /"mode":"dag"/);
+});
+
+test("user subflow workflows are discovered from the pi agent subflow directory", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const userSubflowDir = await mkdtemp(join(tmpdir(), "pi-subflow-user-"));
+	const workflowsDir = join(userSubflowDir, "workflows");
+	await mkdir(workflowsDir, { recursive: true });
+	await writeFile(join(workflowsDir, "global-review.yaml"), "global:\n  agent: reviewer\n  task: Review globally\n", "utf8");
+	const runnerCalls: RunnerInput[] = [];
+	const runner: SubagentRunner = {
+		async run(input) {
+			runnerCalls.push(input);
+			return { name: input.name, agent: input.agent, task: input.task, role: input.role, model: input.model, dependsOn: input.dependsOn, status: "completed", output: `ran ${input.name}`, usage: {} };
+		},
+	};
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { userSubflowDir, runnerFactory: () => runner });
+
+	const discoverResults = await pi.emit("resources_discover", { type: "resources_discover", cwd, reason: "startup" }, fakeCtx(cwd));
+	assert.deepEqual(discoverResults, [{ promptPaths: [join(userSubflowDir, "prompts")] }]);
+	assert.match(await readFile(join(userSubflowDir, "prompts", "global-review.md"), "utf8"), /description: Run ~\/\.pi\/agent\/subflow\/workflows\/global-review\.yaml as a pi-subflow DAG/);
+
+	await pi.emit("session_start", {}, fakeCtx(cwd));
+	assert(pi.commands.has("global-review"));
+	await pi.commands.get("global-review").handler("", fakeCtx(cwd));
+	assert.deepEqual(runnerCalls.map((call) => call.name), ["global"]);
+});
+
+test("project and user subflow workflows both return prompt paths when command names differ", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const userSubflowDir = await mkdtemp(join(tmpdir(), "pi-subflow-user-"));
+	await mkdir(join(cwd, ".pi", "subflow", "workflows"), { recursive: true });
+	await mkdir(join(userSubflowDir, "workflows"), { recursive: true });
+	await writeFile(join(cwd, ".pi", "subflow", "workflows", "project-only.yaml"), "project-task:\n  agent: reviewer\n  task: From project\n", "utf8");
+	await writeFile(join(userSubflowDir, "workflows", "user-only.yaml"), "user-task:\n  agent: reviewer\n  task: From user\n", "utf8");
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { userSubflowDir });
+
+	const discoverResults = await pi.emit("resources_discover", { type: "resources_discover", cwd, reason: "startup" }, fakeCtx(cwd));
+
+	assert.deepEqual(discoverResults, [{ promptPaths: [join(cwd, ".pi", "subflow", "prompts"), join(userSubflowDir, "prompts")] }]);
+	assert.match(await readFile(join(cwd, ".pi", "subflow", "prompts", "project-only.md"), "utf8"), /project-only/);
+	assert.match(await readFile(join(userSubflowDir, "prompts", "user-only.md"), "utf8"), /user-only/);
+});
+
+test("project subflow workflows override user workflows with the same command name", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const userSubflowDir = await mkdtemp(join(tmpdir(), "pi-subflow-user-"));
+	await mkdir(join(cwd, ".pi", "subflow", "workflows"), { recursive: true });
+	await mkdir(join(userSubflowDir, "workflows"), { recursive: true });
+	await writeFile(join(userSubflowDir, "workflows", "same.yaml"), "user-task:\n  agent: reviewer\n  task: From user\n", "utf8");
+	await writeFile(join(cwd, ".pi", "subflow", "workflows", "same.yaml"), "project-task:\n  agent: reviewer\n  task: From project\n", "utf8");
+	const runnerCalls: RunnerInput[] = [];
+	const runner: SubagentRunner = {
+		async run(input) {
+			runnerCalls.push(input);
+			return { name: input.name, agent: input.agent, task: input.task, role: input.role, model: input.model, dependsOn: input.dependsOn, status: "completed", output: `ran ${input.name}`, usage: {} };
+		},
+	};
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { userSubflowDir, runnerFactory: () => runner });
+
+	const discoverResults = await pi.emit("resources_discover", { type: "resources_discover", cwd, reason: "startup" }, fakeCtx(cwd));
+	assert.deepEqual(discoverResults, [{ promptPaths: [join(cwd, ".pi", "subflow", "prompts"), join(userSubflowDir, "prompts")] }]);
+	assert.match(await readFile(join(userSubflowDir, "prompts", "same.md"), "utf8"), /~\/\.pi\/agent\/subflow\/workflows\/same\.yaml/);
+	await pi.emit("session_start", {}, fakeCtx(cwd));
+	await pi.commands.get("same").handler("", fakeCtx(cwd));
+
+	assert.deepEqual(runnerCalls.map((call) => call.name), ["project-task"]);
+});
+
+test("workflow prompt stub discovery removes stale generated stubs after deleting the last workflow", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const workflowsDir = join(cwd, ".pi", "subflow", "workflows");
+	const promptDir = join(cwd, ".pi", "subflow", "prompts");
+	await mkdir(workflowsDir, { recursive: true });
+	await writeFile(join(workflowsDir, "temporary.yaml"), "temporary:\n  agent: reviewer\n  task: Temporary\n", "utf8");
+	const pi = fakePi();
+	registerPiSubflowExtension(pi);
+	await pi.emit("resources_discover", { type: "resources_discover", cwd, reason: "startup" }, fakeCtx(cwd));
+	assert.match(await readFile(join(promptDir, "temporary.md"), "utf8"), /temporary/);
+
+	await rm(join(workflowsDir, "temporary.yaml"));
+	const discoverResults = await pi.emit("resources_discover", { type: "resources_discover", cwd, reason: "reload" }, fakeCtx(cwd));
+
+	assert.deepEqual(discoverResults, [{}]);
+	await assert.rejects(() => readFile(join(promptDir, "temporary.md"), "utf8"), /ENOENT/);
 });
 
 test("workflow slash command registration refreshes when a command stem switches yaml filenames", async () => {
