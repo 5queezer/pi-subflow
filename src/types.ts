@@ -79,13 +79,19 @@ export interface FlowResult {
 	usage?: UsageStats;
 }
 
-export interface TraceEvent {
-	type: string;
-	name?: string;
-	stage?: number;
-	error?: string;
-	timestamp: number;
-}
+export type TraceEvent =
+	| {
+		type: string;
+		name?: string;
+		stage?: number;
+		error?: string;
+		timestamp: number;
+	}
+	| {
+		type: "pocketflow_node";
+		name: string;
+		timestamp: number;
+	};
 
 export interface ExecutionOptions {
 	runner: SubagentRunner;

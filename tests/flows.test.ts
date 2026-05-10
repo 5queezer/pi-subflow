@@ -92,6 +92,36 @@ test("runDag executes dependencies before verifier and injects dependency output
 	assert.deepEqual(result.results[2].dependsOn, ["front", "back"]);
 });
 
+
+test("runDag executes through PocketFlow DAG node phases", async () => {
+	const runner = new MockSubagentRunner({
+		planner: async () => "plan",
+		reviewer: async () => "review",
+	});
+
+	const result = await runDag(
+		{
+			tasks: [
+				{ name: "plan", agent: "planner", task: "plan" },
+				{ name: "review", agent: "reviewer", task: "review", dependsOn: ["plan"] },
+			],
+		},
+		{ runner },
+	);
+
+	assert.equal(result.status, "completed");
+	assert.deepEqual(
+		result.trace.filter((event) => event.type === "pocketflow_node").map((event) => event.name),
+		[
+			"validate-dag",
+			"max-turns-guard",
+			"execute-dag-stages",
+			"verifier-repair",
+			"aggregate-dag-result",
+		],
+	);
+});
+
 test("runDag expands nested workflow tasks with namespaced names", async () => {
 	const runner = new MockSubagentRunner({
 		mock: async ({ name, task }) => `done:${name}:${task}`,

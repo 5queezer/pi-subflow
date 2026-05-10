@@ -51,6 +51,14 @@ test("doc describes DAG validation boundary and current expressiveness", async (
 	assert.match(adr, /graph librar(?:y|ies)/);
 });
 
+test("PocketFlow docs describe DAG node-backed execution boundary", async () => {
+	const adr = await readFile("doc/adr/0001-pocketflow-orchestration-core.md", "utf8");
+
+	assert.match(adr, /DAG execution/i);
+	assert.match(adr, /PocketFlow node-backed/i);
+	assert.match(adr, /chain and parallel/i);
+});
+
 test("optimizer docs describe dry-run eval safety and index the workflow optimization page", async () => {
 	const readme = await readFile("README.md", "utf8");
 	const roadmap = await readFile("doc/wiki/Roadmap.md", "utf8");
