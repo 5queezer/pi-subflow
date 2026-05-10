@@ -1,7 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { normalizeDagYaml, normalizeNestedWorkflows } from "../dag-yaml.js";
 import type { SubagentRunner, SubagentTask } from "../types.js";
 import { evaluateOptimizerRun, loadWorkflowTasks } from "./evaluator.js";
 import { formatOptimizerReport, writeOptimizerReport } from "./report.js";
@@ -14,6 +13,9 @@ export interface SubflowOptimizeToolParams {
 	candidateDagYamls?: string[];
 	maxCandidateRuns?: number;
 	maxCost?: number;
+	maxRunCost?: number;
+	maxCandidateCost?: number;
+	maxTotalCost?: number;
 	maxConcurrency?: number;
 	timeoutSeconds?: number;
 }
@@ -26,14 +28,18 @@ export const subflowOptimizeParameterSchema = Type.Object({
 		inline: Type.Optional(Type.Any()),
 	}),
 	candidateDagYamls: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
-	maxCandidateRuns: Type.Optional(Type.Number()),
-	maxCost: Type.Optional(Type.Number()),
+	maxCandidateRuns: Type.Optional(Type.Integer({ minimum: 1 })),
+	maxCost: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+	maxRunCost: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+	maxCandidateCost: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+	maxTotalCost: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
 	maxConcurrency: Type.Optional(Type.Number()),
 	timeoutSeconds: Type.Optional(Type.Number()),
 });
 
 export function createSubflowOptimizeTool(options: {
 	discoverRunner: (input: { ctx: ExtensionContext; params: SubflowOptimizeToolParams }) => Promise<SubagentRunner> | SubagentRunner;
+	validateCandidateTasks?: (input: { ctx: ExtensionContext; params: SubflowOptimizeToolParams; tasks: SubagentTask[] }) => void;
 }) {
 	return {
 		name: "subflow_optimize",
@@ -44,9 +50,13 @@ export function createSubflowOptimizeTool(options: {
 			"Use subflow_optimize for ADR 0003 workflow optimization experiments, not for normal subagent delegation.",
 			"canonical eval sets live under .pi/subflow/evals/*.yaml; inline evalSet is a convenience only and should be saved if useful.",
 			"The tool does not mutate workflow files; future apply behavior must be a separate tool.",
+			"MVP candidateDagYamls are manual comparison inputs only. This tool does not generate candidates; pass them in candidateDagYamls.",
 			"Pass exactly one of workflowPath or dagYaml, and exactly one of evalSet.path or evalSet.inline.",
-			"maxCandidateRuns is a budget cap on candidate repetitions; it can reduce but not increase evalSet.scoring.minRunsPerCase.",
-			"Invalid candidate DAG YAMLs are reported and not run.",
+			"maxCandidateRuns is a positive-integer budget cap on candidate repetitions; it can reduce but not increase evalSet.scoring.minRunsPerCase.",
+			"Use maxRunCost, maxCandidateCost, and maxTotalCost for distinct budgets; maxCost is a compatibility alias for per-candidate budget behavior.",
+			"expectedSections/jsonSchema.required are structural gates only, not quality scores; recommendations require every eval case to define a quality scorer.",
+			"Structural-only or single-run evals are profile-only and do not recommend candidates.",
+			"Invalid candidate DAG YAMLs and policy/allowlist failures are reported per candidate and do not abort the whole optimizer run.",
 		],
 		renderShell: "self" as const,
 		parameters: subflowOptimizeParameterSchema,
@@ -68,9 +78,13 @@ export function createSubflowOptimizeTool(options: {
 				candidateDagYamls: params.candidateDagYamls,
 				maxCandidateRuns: params.maxCandidateRuns,
 				maxCost: params.maxCost,
+				maxRunCost: params.maxRunCost,
+				maxCandidateCost: params.maxCandidateCost,
+				maxTotalCost: params.maxTotalCost,
 				maxConcurrency: params.maxConcurrency,
 				timeoutSeconds: params.timeoutSeconds,
 				runner,
+				validateCandidateTasks: options.validateCandidateTasks ? (tasks) => options.validateCandidateTasks?.({ ctx, params, tasks }) : undefined,
 				signal: signal ?? ctx.signal,
 			});
 			const reportPath = await writeOptimizerReport(ctx.cwd, report);
@@ -88,18 +102,6 @@ async function buildOptimizerToolResult(report: OptimizerReport, reportPath: str
 	};
 }
 
-function collectBaselineAndCandidateTasks(params: SubflowOptimizeToolParams, baselineTasks: SubagentTask[]): SubagentTask[] {
-	const candidateTasks = (params.candidateDagYamls ?? []).flatMap((dagYaml) => {
-		try {
-			return normalizeNestedWorkflows(normalizeDagYaml({ dagYaml })).tasks ?? [];
-		} catch {
-			return [];
-		}
-	});
-	return [...baselineTasks, ...candidateTasks];
-}
-
 export async function collectOptimizerPolicyTasks(params: SubflowOptimizeToolParams, cwd: string): Promise<SubagentTask[]> {
-	const baselineTasks = await loadWorkflowTasks({ cwd, workflowPath: params.workflowPath, dagYaml: params.dagYaml });
-	return collectBaselineAndCandidateTasks(params, baselineTasks);
+	return loadWorkflowTasks({ cwd, workflowPath: params.workflowPath, dagYaml: params.dagYaml });
 }
