@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { evaluateOptimizerRun } from "../src/optimizer/evaluator.js";
+import { MockSubagentRunner } from "../src/index.js";
 import { proposeCandidates } from "../src/optimizer/proposer.ts";
 
 test("proposeCandidates rejects ambiguous workflowPath and dagYaml inputs", async () => {
@@ -48,6 +53,10 @@ test("proposeCandidates rejects malformed baseline DAG YAML", async () => {
 	);
 });
 
+async function tmpProject(): Promise<string> {
+	return mkdtemp(join(tmpdir(), "pi-subflow-proposer-"));
+}
+
 test("proposeCandidates defaults requestedCount to 3", async () => {
 	const result = await proposeCandidates({
 		dagYaml: `research:\n  agent: researcher\n  task: Research the topic.\n\nrepo:\n  agent: researcher\n  task: Inspect repository evidence.\n`,
@@ -55,4 +64,32 @@ test("proposeCandidates defaults requestedCount to 3", async () => {
 
 	assert.equal(result.requestedCount, 3);
 	assert.equal(result.proposals.length, 1);
+});
+
+test("proposed candidate YAML is accepted by evaluateOptimizerRun", async () => {
+	const cwd = await tmpProject();
+	const runner = new MockSubagentRunner({ mock: async () => "## Summary\nOk", verifier: async () => "## Summary\nSynthesized" });
+	const proposal = await proposeCandidates({
+		dagYaml: `research:\n  agent: mock\n  task: Research the topic.\n\nrepo:\n  agent: mock\n  task: Inspect repository evidence.\n`,
+		count: 1,
+	});
+
+	assert.equal(proposal.proposals[0]?.valid, true);
+	const report = await evaluateOptimizerRun({
+		cwd,
+		dagYaml: "review:\n  agent: mock\n  task: Review docs\n",
+		evalSet: {
+			inline: {
+				name: "inline-docs",
+				objective: { taskScore: 1, cost: 0, latency: 0, instability: 1, complexity: 0 },
+				scoring: { minRunsPerCase: 1, minUtilityDelta: 0.05, maxFailureRateRegression: 0 },
+				cases: [{ name: "one", input: "Check docs", expectedSections: ["Summary"] }],
+			},
+		},
+		candidateDagYamls: [proposal.proposals[0]?.dagYaml ?? ""],
+		runner,
+	});
+
+	assert.notEqual(report.candidates[0]?.status, "invalid");
+	assert.equal(report.candidates[0]?.status, "completed");
 });
