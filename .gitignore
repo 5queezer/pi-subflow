@@ -4,3 +4,6 @@ dist/
 doc/superpowers/
 .worktrees/
 graphify-out/
+
+# Ralph loop state
+.ralph/
