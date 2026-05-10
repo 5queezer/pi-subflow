@@ -803,7 +803,13 @@ class ProgressRunner implements SubagentRunner {
 		this.progress.taskStarted(input);
 		try {
 			const result = await this.inner.run(input, signal);
-			this.progress.taskFinished(result);
+			this.progress.taskFinished({
+				...result,
+				agent: result.agent ?? input.agent ?? "workflow",
+				task: result.task ?? input.task ?? "summary",
+				role: result.role ?? input.role,
+				model: result.model ?? input.model,
+			});
 			return result;
 		} catch (error) {
 			this.progress.taskFinished({ name: input.name, agent: input.agent ?? "workflow", task: input.task ?? "summary", role: input.role, model: input.model, status: "failed", output: "", error: error instanceof Error ? error.message : String(error), usage: {} });
@@ -827,6 +833,7 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 	const startedAt = Date.now();
 	const running = new Map<string, { startedAt: number; task: import("./types.js").RunnerInput }>();
 	const results = new Map<string, SubagentResult>();
+	const completedDurations = new Map<string, number>();
 	let interval: ReturnType<typeof setInterval> | undefined;
 	let runningFrame = 0;
 	let stopped = false;
@@ -856,13 +863,13 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 		const elapsed = formatDuration(Date.now() - startedAt);
 		const runningIcon = statusIcon("running", runningFrame);
 		const taskLines = [
-			...[...results.values()].map((result) => `${statusIcon(result.status, runningFrame)} ${result.name ?? result.agent} ${formatTaskIdentity(result)}${result.error ? `: ${result.error}` : result.output ? ` → ${firstLine(result.output)}` : ""}`),
+			...[...results.entries()].map(([name, result]) => `${statusIcon(result.status, runningFrame)} ${result.name ?? result.agent} ${formatTaskIdentity(result)}${formatFinishedDuration(result, completedDurations.get(name))}${result.error ? `: ${result.error}` : result.output ? ` → ${firstLine(result.output)}` : ""}`),
 			...[...running.entries()].filter(([name]) => !results.has(name)).map(([name, state]) => `${runningIcon} ${name} ${formatTaskIdentity(state.task)} · ${formatDuration(Date.now() - state.startedAt)} elapsed`),
 		];
 		const lines = [
 			`subflow · ${mode} · ${status}`,
 			`${total} task${total === 1 ? "" : "s"} · ${runningCount} running · ${completed} completed · ${failed} failed · ${skipped} skipped · ${elapsed} elapsed${timeout}`,
-			...(taskLines.length ? taskLines : ["waiting to start"]),
+			...(taskLines.length ? bottomVisibleTaskLines(taskLines) : ["waiting to start"]),
 		];
 		if (safeSetWidget(lines, { placement: "belowEditor" })) runningFrame += 1;
 	};
@@ -878,8 +885,11 @@ function createProgressReporter(ctx: ExtensionContext, mode: string, total: numb
 			render();
 		},
 		taskFinished(result) {
-			results.set(result.name ?? result.agent, result);
-			running.delete(result.name ?? result.agent);
+			const name = result.name ?? result.agent;
+			const started = running.get(name)?.startedAt;
+			if (started !== undefined) completedDurations.set(name, Date.now() - started);
+			results.set(name, result);
+			running.delete(name);
 			render();
 		},
 		clear() {
@@ -990,7 +1000,20 @@ function formatDagNodeMeta(result: SubagentResult): string {
 }
 
 const PROGRESS_FRAME_INTERVAL_MS = 60;
+const MAX_PROGRESS_TASK_LINES = 8;
 const RUNNING_STATUS_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"].map((frame) => `\x1b[32m${frame}\x1b[0m`);
+
+function bottomVisibleTaskLines(taskLines: string[]): string[] {
+	if (taskLines.length <= MAX_PROGRESS_TASK_LINES) return taskLines;
+	const visibleTaskCount = MAX_PROGRESS_TASK_LINES - 1;
+	const hiddenCount = taskLines.length - visibleTaskCount;
+	return [`… ${hiddenCount} earlier task${hiddenCount === 1 ? "" : "s"}`, ...taskLines.slice(-visibleTaskCount)];
+}
+
+function formatFinishedDuration(result: SubagentResult, durationMs: number | undefined): string {
+	if (result.status === "running" || result.status === "skipped" || durationMs === undefined) return "";
+	return ` · ${result.status === "completed" ? "completed" : "failed"} in ${formatDuration(durationMs)}`;
+}
 
 function statusIcon(status: SubagentResult["status"], frame = 0): string {
 	if (status === "completed") return "✓";

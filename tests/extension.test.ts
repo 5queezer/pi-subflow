@@ -508,6 +508,47 @@ test("subflow extension shows task-level progress with mode, counts, timeout, mo
 	assert(ctx.widgets.some((entry) => entry.key === "pi-subflow-progress" && entry.value === undefined));
 });
 
+test("subflow extension shows requested model and duration for completed progress tasks", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner: SubagentRunner = {
+		async run(input) {
+			return { name: input.name, agent: input.agent, task: input.task, status: "completed", output: "ok", usage: {} };
+		},
+	};
+	const pi = fakePi();
+	const ctx = fakeCtx(cwd);
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	await pi.tool.execute("call-1", { agent: "worker", task: "one", model: "openai/gpt-mini" }, undefined, undefined, ctx);
+
+	const finalProgress = ctx.widgets
+		.filter((entry) => entry.key === "pi-subflow-progress" && Array.isArray(entry.value))
+		.at(-1)?.value as string[] | undefined;
+	assert(finalProgress, "expected at least one progress widget render");
+	const rendered = finalProgress.join("\n");
+	assert.match(rendered, /✓ worker-1 \[worker · openai\/gpt-mini\] · completed in \d+s → ok/);
+});
+
+test("subflow extension keeps newest task progress visible when the widget has many tasks", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	const ctx = fakeCtx(cwd);
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+	const tasks = Array.from({ length: 30 }, (_, index) => ({ name: `task-${index + 1}`, agent: "worker", task: `work ${index + 1}` }));
+
+	await pi.tool.execute("call-1", { tasks }, undefined, undefined, ctx);
+
+	const finalProgress = ctx.widgets
+		.filter((entry) => entry.key === "pi-subflow-progress" && Array.isArray(entry.value))
+		.at(-1)?.value as string[] | undefined;
+	assert(finalProgress, "expected at least one progress widget render");
+	const rendered = finalProgress.join("\n");
+	assert.match(rendered, /… 23 earlier tasks/);
+	assert.doesNotMatch(rendered, /✓ task-1 \[worker · default\]/);
+	assert.match(rendered, /✓ task-30 \[worker · default\]/);
+});
+
 test("subflow extension stops progress updates when the UI context becomes stale", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	let release!: () => void;
