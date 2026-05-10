@@ -4,13 +4,14 @@ import { basename, extname, isAbsolute, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { Flow, Node } from "pocketflow";
 import { discoverAgents, type AgentDefinition, type AgentScope } from "./agents.js";
 import { appendRunHistory } from "./history.js";
 import { validateExecutionPolicy } from "./policy.js";
 import { normalizeDagYaml, normalizeNestedWorkflows } from "./dag-yaml.js";
 import { PiSdkRunner } from "./runner.js";
 import { collectOptimizerPolicyTasks, createSubflowOptimizeTool, type SubflowOptimizeToolParams } from "./optimizer/tool.js";
-import type { ChainStep, ExecutionOptions, FlowMode, FlowResult, SubagentResult, SubagentRunner, SubagentTask } from "./types.js";
+import type { ChainStep, ExecutionOptions, FlowMode, FlowResult, SubagentResult, SubagentRunner, SubagentTask, TraceEvent } from "./types.js";
 import { runChain } from "./flows/chain.js";
 import { runDag } from "./flows/dag.js";
 import { runParallel } from "./flows/parallel.js";
@@ -225,56 +226,194 @@ export default function piSubflowExtension(pi: ExtensionAPI): void {
 	registerPiSubflowExtension(pi);
 }
 
-async function executeSubflow(rawParams: SubflowToolParams, ctx: ExtensionContext, options: PiSubflowExtensionOptions, signal?: AbortSignal) {
-	const params = normalizeNestedWorkflows(normalizeDagYaml(rawParams));
-	const mode = inferMode(params);
-	const flowTasks = tasksForPolicy(params);
-	validateNonEmptyStrings(flowTasks);
-	validateExecutionPolicy({
-		agentScope: params.agentScope,
-		confirmProjectAgents: params.confirmProjectAgents,
-		hasUI: ctx.hasUI,
-		riskTolerance: params.riskTolerance,
-		allowExternalSideEffectWithoutConfirmation: params.allowExternalSideEffectWithoutConfirmation,
-		tasks: flowTasks,
-	});
-	await confirmPolicies(params, flowTasks, ctx);
-	const agents = await discoverAgents({
-		scope: params.agentScope ?? "user",
-		userDir: options.userDir ?? join(homedir(), ".pi", "agent", "agents"),
-		projectDir: options.projectDir ?? join(ctx.cwd, ".pi", "agents"),
-	});
-	const effectiveParams = applyAgentDefaults(params, agents, ctx.cwd);
-	const effectiveTasks = tasksForPolicy(effectiveParams);
-	validateToolAllowlist(effectiveTasks, options.allowedTools);
-	const baseRunner = options.runnerFactory?.({ agents, ctx, params: effectiveParams }) ?? new PiSdkRunner({ agentDefinitions: agents });
-	const progress = createProgressReporter(ctx, mode, effectiveTasks.length, params.timeoutSeconds);
-	const runner = progress ? new ProgressRunner(baseRunner, progress) : baseRunner;
-	progress?.start();
-	const executionOptions: ExecutionOptions = {
-		runner,
-		maxConcurrency: params.maxConcurrency,
-		timeoutSeconds: params.timeoutSeconds,
-		maxRetries: params.maxRetries,
-		maxCost: params.maxCost,
-		maxTokens: params.maxTokens,
-		maxTurns: params.maxTurns,
-		maxVerificationRounds: params.maxVerificationRounds,
-		signal: signal ?? ctx.signal,
+interface ExecuteSubflowShared {
+	rawParams: SubflowToolParams;
+	ctx: ExtensionContext;
+	options: PiSubflowExtensionOptions;
+	signal?: AbortSignal;
+	mode?: FlowMode;
+	params?: SubflowToolParams;
+	flowTasks?: SubagentTask[];
+	agents?: Map<string, AgentDefinition>;
+	effectiveParams?: SubflowToolParams;
+	runner?: SubagentRunner;
+	progress?: ProgressReporter;
+	executionOptions?: ExecutionOptions;
+	result?: FlowResult;
+	trace: TraceEvent[];
+	toolResult?: {
+		content: Array<{ type: "text"; text: string }>;
+		details: FlowResult & { mode: FlowMode };
+		isError: boolean;
 	};
-	let result: FlowResult;
-	try {
-		result = await runSelectedFlow(mode, effectiveParams, executionOptions);
-	} finally {
-		progress?.clear();
+}
+
+const EXTENSION_NODE_TRACE_TYPE = "pocketflow_node" as const;
+
+class NormalizeParamsNode extends Node<ExecuteSubflowShared> {
+	private mark(shared: ExecuteSubflowShared): void {
+		shared.trace.push({ type: EXTENSION_NODE_TRACE_TYPE, name: "extension-normalize-params", timestamp: Date.now() });
 	}
-	await appendRunHistory(resolveHistoryPath(options.historyPath, ctx), { ...result, mode });
-	const details = { ...result, mode };
-	return {
-		content: [{ type: "text" as const, text: formatResult(result, mode) }],
-		details,
-		isError: result.status !== "completed",
+
+	async post(shared: ExecuteSubflowShared): Promise<string | undefined> {
+		this.mark(shared);
+		shared.params = normalizeNestedWorkflows(normalizeDagYaml(shared.rawParams));
+		shared.mode = inferMode(shared.params);
+		shared.flowTasks = tasksForPolicy(shared.params);
+		return "validate-policy";
+	}
+}
+
+class ValidatePolicyNode extends Node<ExecuteSubflowShared> {
+	private mark(shared: ExecuteSubflowShared): void {
+		shared.trace.push({ type: EXTENSION_NODE_TRACE_TYPE, name: "extension-validate-policy", timestamp: Date.now() });
+	}
+
+	async post(shared: ExecuteSubflowShared): Promise<string | undefined> {
+		this.mark(shared);
+		if (!shared.params || !shared.mode || !shared.flowTasks) throw new Error("subflow parameters were not normalized");
+		validateNonEmptyStrings(shared.flowTasks);
+		validateExecutionPolicy({
+			agentScope: shared.params.agentScope,
+			confirmProjectAgents: shared.params.confirmProjectAgents,
+			hasUI: shared.ctx.hasUI,
+			riskTolerance: shared.params.riskTolerance,
+			allowExternalSideEffectWithoutConfirmation: shared.params.allowExternalSideEffectWithoutConfirmation,
+			tasks: shared.flowTasks,
+		});
+		await confirmPolicies(shared.params, shared.flowTasks, shared.ctx);
+		return "discover-agents";
+	}
+}
+
+class DiscoverAgentsNode extends Node<ExecuteSubflowShared> {
+	private mark(shared: ExecuteSubflowShared): void {
+		shared.trace.push({ type: EXTENSION_NODE_TRACE_TYPE, name: "extension-discover-agents", timestamp: Date.now() });
+	}
+
+	async post(shared: ExecuteSubflowShared): Promise<string | undefined> {
+		this.mark(shared);
+		if (!shared.params) throw new Error("subflow parameters were not normalized");
+		shared.agents = await discoverAgents({
+			scope: shared.params.agentScope ?? "user",
+			userDir: shared.options.userDir ?? join(homedir(), ".pi", "agent", "agents"),
+			projectDir: shared.options.projectDir ?? join(shared.ctx.cwd, ".pi", "agents"),
+		});
+		return "prepare-runner";
+	}
+}
+
+class PrepareRunnerNode extends Node<ExecuteSubflowShared> {
+	private mark(shared: ExecuteSubflowShared): void {
+		shared.trace.push({ type: EXTENSION_NODE_TRACE_TYPE, name: "extension-prepare-runner", timestamp: Date.now() });
+	}
+
+	async post(shared: ExecuteSubflowShared): Promise<string | undefined> {
+		this.mark(shared);
+		if (!shared.params || !shared.agents || !shared.mode || !shared.ctx) {
+			throw new Error("subflow execution context missing required state");
+		}
+		const effectiveParams = applyAgentDefaults(shared.params, shared.agents, shared.ctx.cwd);
+		const effectiveTasks = tasksForPolicy(effectiveParams);
+		validateToolAllowlist(effectiveTasks, shared.options.allowedTools);
+		const baseRunner = shared.options.runnerFactory?.({ agents: shared.agents, ctx: shared.ctx, params: effectiveParams }) ?? new PiSdkRunner({ agentDefinitions: shared.agents });
+		const progress = createProgressReporter(shared.ctx, shared.mode, effectiveTasks.length, shared.params.timeoutSeconds);
+		const runner = progress ? new ProgressRunner(baseRunner, progress) : baseRunner;
+		shared.progress = progress;
+		progress?.start();
+		shared.effectiveParams = effectiveParams;
+		shared.runner = runner;
+		shared.executionOptions = {
+			runner,
+			maxConcurrency: shared.params.maxConcurrency,
+			timeoutSeconds: shared.params.timeoutSeconds,
+			maxRetries: shared.params.maxRetries,
+			maxCost: shared.params.maxCost,
+			maxTokens: shared.params.maxTokens,
+			maxTurns: shared.params.maxTurns,
+			maxVerificationRounds: shared.params.maxVerificationRounds,
+			signal: shared.signal ?? shared.ctx.signal,
+		};
+		return "execute-flow";
+	}
+}
+
+class ExecuteFlowNode extends Node<ExecuteSubflowShared> {
+	private mark(shared: ExecuteSubflowShared): void {
+		shared.trace.push({ type: EXTENSION_NODE_TRACE_TYPE, name: "extension-execute-flow", timestamp: Date.now() });
+	}
+
+	async post(shared: ExecuteSubflowShared): Promise<string | undefined> {
+		this.mark(shared);
+		if (!shared.mode || !shared.effectiveParams || !shared.executionOptions) {
+			throw new Error("subflow execution options missing");
+		}
+		try {
+			shared.result = await runSelectedFlow(shared.mode, shared.effectiveParams, shared.executionOptions);
+			return "persist-history";
+		} finally {
+			shared.progress?.clear();
+		}
+	}
+}
+
+class PersistHistoryNode extends Node<ExecuteSubflowShared> {
+	private mark(shared: ExecuteSubflowShared): void {
+		shared.trace.push({ type: EXTENSION_NODE_TRACE_TYPE, name: "extension-persist-history", timestamp: Date.now() });
+	}
+
+	async post(shared: ExecuteSubflowShared): Promise<string | undefined> {
+		this.mark(shared);
+		if (!shared.result || !shared.mode) throw new Error("flow execution did not produce a result");
+		await appendRunHistory(resolveHistoryPath(shared.options.historyPath, shared.ctx), { ...shared.result, mode: shared.mode });
+		return "format-result";
+	}
+}
+
+class FormatResultNode extends Node<ExecuteSubflowShared & { result: FlowResult; mode: FlowMode }> {
+	private mark(shared: ExecuteSubflowShared): void {
+		shared.trace.push({ type: EXTENSION_NODE_TRACE_TYPE, name: "extension-format-result", timestamp: Date.now() });
+	}
+
+	async post(shared: ExecuteSubflowShared & { result: FlowResult; mode: FlowMode }): Promise<string | undefined> {
+		this.mark(shared);
+		const details = { ...shared.result, mode: shared.mode };
+		shared.toolResult = {
+			content: [{ type: "text", text: formatResult(shared.result, shared.mode) }],
+			details: {
+				...details,
+				trace: [...shared.trace, ...details.trace],
+			},
+			isError: shared.result.status !== "completed",
+		};
+		return undefined;
+	}
+}
+
+async function executeSubflow(rawParams: SubflowToolParams, ctx: ExtensionContext, options: PiSubflowExtensionOptions, signal?: AbortSignal) {
+	const shared: ExecuteSubflowShared = {
+		rawParams,
+		ctx,
+		options,
+		signal,
+		trace: [],
 	};
+	const normalize = new NormalizeParamsNode();
+	const validatePolicy = new ValidatePolicyNode();
+	const discoverAgentsNode = new DiscoverAgentsNode();
+	const prepareRunner = new PrepareRunnerNode();
+	const execute = new ExecuteFlowNode();
+	const persistHistory = new PersistHistoryNode();
+	const formatResultNode = new FormatResultNode();
+	normalize.on("validate-policy", validatePolicy);
+	validatePolicy.on("discover-agents", discoverAgentsNode);
+	discoverAgentsNode.on("prepare-runner", prepareRunner);
+	prepareRunner.on("execute-flow", execute);
+	execute.on("persist-history", persistHistory);
+	persistHistory.on("format-result", formatResultNode);
+	await new Flow(normalize).run(shared);
+	if (!shared.toolResult) throw new Error("subflow execution produced no tool result");
+	return shared.toolResult;
 }
 
 interface WorkflowCommandFile {
