@@ -11,16 +11,26 @@ export async function proposeCandidates(input: CandidateProposerInput): Promise<
 		throw new Error("Provide exactly one of workflowPath or dagYaml");
 	}
 
+	const count = input.count ?? 3;
+	if (!Number.isInteger(count) || count < 1) {
+		throw new Error("count must be a positive integer");
+	}
+	const requestedCount = Math.min(count, 5);
+
+	const strategy = input.strategy ?? "safe";
+	if (strategy !== "safe" && strategy !== "exploratory") {
+		throw new Error("strategy must be safe or exploratory");
+	}
+
 	const sourceDagYaml = input.dagYaml ?? (await readFile(resolve(input.workflowPath ?? ""), "utf8"));
 	const tasks = loadDagTasks(sourceDagYaml);
 	const proposal = buildVerifierFanInCandidate(tasks);
-	const requestedCount = input.count ?? 3;
-	const proposals = proposal && requestedCount > 0 ? [proposal] : [];
+	const proposals = proposal ? [proposal] : [];
 	const validCount = proposals.filter((candidate) => candidate.valid).length;
 
 	return {
 		status: "completed",
-		strategy: input.strategy ?? "safe",
+		strategy,
 		requestedCount,
 		proposals,
 		summary: validCount > 0 ? "Generated 1 valid verifier fan-in candidate." : "No verifier fan-in candidate generated.",

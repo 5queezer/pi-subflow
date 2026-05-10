@@ -29,6 +29,25 @@ test("proposeCandidates returns a valid verifier fan-in candidate for a multi-ro
 	assert.match(proposal.dagYaml, /role: verifier/);
 });
 
+test("proposeCandidates validates count and strategy", async () => {
+	await assert.rejects(
+		proposeCandidates({ dagYaml: "a:\n  task: a\n", count: 0 }),
+		/count must be a positive integer/i,
+	);
+
+	await assert.rejects(
+		proposeCandidates({ dagYaml: "a:\n  task: a\n", strategy: "wild" as never }),
+		/strategy must be safe or exploratory/i,
+	);
+});
+
+test("proposeCandidates rejects malformed baseline DAG YAML", async () => {
+	await assert.rejects(
+		proposeCandidates({ dagYaml: "not: [valid" }),
+		/yaml|parse|invalid/i,
+	);
+});
+
 test("proposeCandidates defaults requestedCount to 3", async () => {
 	const result = await proposeCandidates({
 		dagYaml: `research:\n  agent: researcher\n  task: Research the topic.\n\nrepo:\n  agent: researcher\n  task: Inspect repository evidence.\n`,
