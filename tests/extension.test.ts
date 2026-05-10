@@ -58,8 +58,9 @@ test("subflow extension registers subflow_propose_candidates with LLM-facing gui
 	assert(tool.promptGuidelines.some((line: string) => /strategy is reserved/i.test(line)));
 
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	await writeFile(join(cwd, "relative.yaml"), `research:\n  agent: researcher\n  task: Research the topic.\n\nrepo:\n  agent: researcher\n  task: Inspect repository evidence.\n`);
 	const result = await tool.execute("call-1", {
-		dagYaml: `research:\n  agent: researcher\n  task: Research the topic.\n\nrepo:\n  agent: researcher\n  task: Inspect repository evidence.\n`,
+		workflowPath: "relative.yaml",
 	}, undefined, undefined, fakeCtx(cwd));
 
 	assert.match(result.content[0].text, /subflow_propose_candidates · completed/);

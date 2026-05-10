@@ -6,7 +6,7 @@ import { validateDagTasks } from "../flows/dag-validation.js";
 import type { SubagentTask } from "../types.js";
 import type { CandidateProposal, CandidateProposerInput, CandidateProposerResult } from "./types.js";
 
-export async function proposeCandidates(input: CandidateProposerInput): Promise<CandidateProposerResult> {
+export async function proposeCandidates(input: CandidateProposerInput, options: { cwd?: string } = {}): Promise<CandidateProposerResult> {
 	if (Boolean(input.workflowPath) === Boolean(input.dagYaml)) {
 		throw new Error("Provide exactly one of workflowPath or dagYaml");
 	}
@@ -22,7 +22,7 @@ export async function proposeCandidates(input: CandidateProposerInput): Promise<
 		throw new Error("strategy must be safe or exploratory");
 	}
 
-	const sourceDagYaml = input.dagYaml ?? await readWorkflowSource(input.workflowPath ?? "");
+	const sourceDagYaml = input.dagYaml ?? await readWorkflowSource(input.workflowPath ?? "", options.cwd);
 	const tasks = loadDagTasks(sourceDagYaml);
 	const proposal = buildVerifierFanInCandidate(tasks);
 	const proposals = proposal ? [proposal] : [];
@@ -90,8 +90,8 @@ function hasExistingVerifierFanIn(tasks: SubagentTask[], rootNames: string[]): b
 	});
 }
 
-async function readWorkflowSource(workflowPath: string): Promise<string> {
-	const resolvedPath = resolve(workflowPath);
+async function readWorkflowSource(workflowPath: string, cwd = process.cwd()): Promise<string> {
+	const resolvedPath = resolve(cwd, workflowPath);
 	try {
 		return await readFile(resolvedPath, "utf8");
 	} catch (error) {

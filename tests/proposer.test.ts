@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -16,6 +16,19 @@ test("proposeCandidates rejects ambiguous workflowPath and dagYaml inputs", asyn
 		/exactly one of workflowPath or dagYaml/i,
 	);
 });
+
+test("proposeCandidates loads workflowPath relative to the supplied cwd", async () => {
+	const cwd = await tmpProject();
+	await writeFile(join(cwd, "relative.yaml"), `research:\n  agent: researcher\n  task: Research the topic.\n\nrepo:\n  agent: researcher\n  task: Inspect repository evidence.\n`);
+
+	const result = await proposeCandidates({ workflowPath: "relative.yaml" }, { cwd });
+
+	assert.equal(result.status, "completed");
+	assert.equal(result.proposals.length, 1);
+	assert.equal(result.proposals[0]?.valid, true);
+	assert.match(result.proposals[0]?.dagYaml ?? "", /synthesis:/);
+});
+
 
 test("proposeCandidates returns a valid verifier fan-in candidate for a multi-root DAG", async () => {
 	const result = await proposeCandidates({

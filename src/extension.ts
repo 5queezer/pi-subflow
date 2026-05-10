@@ -182,7 +182,7 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			return new Text((result.content ?? []).map((item) => item.type === "text" ? item.text : "").join("\n"), 0, 0);
 		},
 		async execute(_toolCallId, rawParams, _signal, _onUpdate, _ctx) {
-			const proposalResult = await proposeCandidates(rawParams as CandidateProposerInput);
+			const proposalResult = await proposeCandidates(rawParams as CandidateProposerInput, { cwd: _ctx?.cwd });
 			return {
 				content: [{ type: "text" as const, text: formatCandidateProposerResult(proposalResult) }],
 				details: proposalResult,
