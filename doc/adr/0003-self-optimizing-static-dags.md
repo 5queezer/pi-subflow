@@ -71,7 +71,7 @@ The optimizer should use an explicit objective function rather than a purely qua
 ```text
 utility = task_score
         - λ_cost * dollar_cost
-        - λ_latency * wall_time
+        - λ_latency * wall_time_seconds
         - λ_instability * failure_rate
         - λ_complexity * graph_complexity
 ```

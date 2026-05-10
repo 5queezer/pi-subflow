@@ -943,6 +943,76 @@ test("subflow_optimize reports disallowed candidate tools without aborting basel
 	assert.equal(runner.calls.length, 1);
 });
 
+test("subflow_optimize discovers project agents when agentScope is both", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-opt-tool-"));
+	const userDir = join(cwd, "user-agents");
+	await writeFile(join(await mkdirp(userDir), "worker.md"), "---\nname: worker\ndescription: User worker\n---\nUse tests.\n");
+	const projectDir = join(cwd, ".pi", "agents");
+	await writeFile(join(await mkdirp(projectDir), "project-reviewer.md"), "---\nname: project-reviewer\ndescription: Project-only reviewer\n---\nReview.\n");
+
+	const captured: { names: string[]; sources: string[] } = { names: [], sources: [] };
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, {
+		userDir,
+		projectDir,
+		runnerFactory: ({ agents }) => {
+			const list = Array.from(agents.values());
+			captured.names = list.map((agent) => agent.name);
+			captured.sources = list.map((agent) => agent.source);
+			return runner;
+		},
+	});
+	const tool = pi.tools.get("subflow_optimize");
+	assert(tool);
+
+	await tool.execute("call-1", {
+		agentScope: "both",
+		dagYaml: "review:\n  agent: project-reviewer\n  task: Review docs\n",
+		evalSet: {
+			inline: {
+				name: "inline-docs",
+				objective: { taskScore: 1, cost: 0, latency: 0, instability: 1, complexity: 0 },
+				scoring: { minRunsPerCase: 1, minUtilityDelta: 0.05, maxFailureRateRegression: 0 },
+				cases: [{ name: "one", input: "Check docs" }],
+			},
+		},
+	}, undefined, undefined, fakeCtx(cwd));
+
+	assert(captured.names.includes("worker"), `expected worker in ${captured.names.join(",")}`);
+	assert(captured.names.includes("project-reviewer"), `expected project-reviewer in ${captured.names.join(",")}`);
+	assert(captured.sources.includes("project"));
+});
+
+test("subflow_optimize rejects scorer tools outside the allowlist before any run", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-opt-tool-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { allowedTools: ["read"], runnerFactory: () => runner });
+	const tool = pi.tools.get("subflow_optimize");
+	assert(tool);
+
+	await assert.rejects(
+		() => tool.execute("call-1", {
+			dagYaml: "review:\n  agent: worker\n  task: Review docs\n",
+			evalSet: {
+				inline: {
+					name: "inline-docs",
+					objective: { taskScore: 1, cost: 0, latency: 0, instability: 1, complexity: 0 },
+					scoring: { minRunsPerCase: 1, minUtilityDelta: 0.05, maxFailureRateRegression: 0 },
+					cases: [{
+						name: "one",
+						input: "Check docs",
+						scorer: { type: "judge", agent: "worker", tools: ["write"], rubric: [{ name: "x", description: "y", weight: 1 }] },
+					}],
+				},
+			},
+		}, undefined, undefined, fakeCtx(cwd)),
+		/unknown or unavailable tool: write/,
+	);
+	assert.equal(runner.calls.length, 0);
+});
+
 test("subflow extension rejects empty agent or task strings", async () => {
 	const pi = fakePi();
 	registerPiSubflowExtension(pi);

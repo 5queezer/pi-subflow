@@ -191,7 +191,7 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			const flowTasks = flattenPolicyTasks(await collectOptimizerPolicyTasks(params, ctx.cwd));
 			validateNonEmptyStrings(flowTasks);
 			validateExecutionPolicy({
-				agentScope: "user",
+				agentScope: params.agentScope ?? "user",
 				confirmProjectAgents: true,
 				hasUI: ctx.hasUI,
 				riskTolerance: "low",
@@ -200,17 +200,17 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			});
 			validateToolAllowlist(flowTasks, options.allowedTools);
 			const agents = await discoverAgents({
-				scope: "user",
+				scope: params.agentScope ?? "user",
 				userDir: options.userDir ?? join(homedir(), ".pi", "agent", "agents"),
 				projectDir: options.projectDir ?? join(ctx.cwd, ".pi", "agents"),
 			});
 			return options.runnerFactory?.({ agents, ctx, params }) ?? new PiSdkRunner({ agentDefinitions: agents });
 		},
-		validateCandidateTasks: ({ ctx, tasks }) => {
+		validateCandidateTasks: ({ ctx, params, tasks }) => {
 			const flowTasks = flattenPolicyTasks(tasks);
 			validateNonEmptyStrings(flowTasks);
 			validateExecutionPolicy({
-				agentScope: "user",
+				agentScope: params.agentScope ?? "user",
 				confirmProjectAgents: true,
 				hasUI: ctx.hasUI,
 				riskTolerance: "low",

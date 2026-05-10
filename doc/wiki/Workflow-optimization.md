@@ -9,6 +9,7 @@ subflow_optimize({
   workflowPath | dagYaml,
   evalSet: { path | inline },
   candidateDagYamls?,
+  agentScope?,       // "user" (default), "project", or "both"
   maxCandidateRuns?,
   maxCost?,          // compatibility alias for per-candidate budget behavior
   maxRunCost?,
@@ -19,7 +20,7 @@ subflow_optimize({
 })
 ```
 
-Use `workflowPath` or `dagYaml`, but not both. Use `evalSet.path` or `evalSet.inline`, but not both. `candidateDagYamls` is optional and holds manually proposed replacements for comparison.
+Use `workflowPath` or `dagYaml`, but not both. Use `evalSet.path` or `evalSet.inline`, but not both. `candidateDagYamls` is optional and holds manually proposed replacements for comparison. `agentScope` defaults to `"user"`; set it to `"both"` (or `"project"`) when the workflow under evaluation depends on project-local agents under `.pi/agents/`, otherwise those agents are not loaded.
 
 ## Eval sets
 

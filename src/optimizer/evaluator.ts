@@ -36,6 +36,8 @@ interface BudgetState {
 export async function evaluateOptimizerRun(input: EvaluateOptimizerRunInput): Promise<OptimizerReport> {
 	validateOptimizerInput(input);
 	const loadedEval = await loadEvalSet({ cwd: input.cwd, evalSet: input.evalSet });
+	const scorerTasks = collectScorerTasks(loadedEval.evalSet.cases);
+	if (scorerTasks.length > 0) input.validateCandidateTasks?.(scorerTasks);
 	const baselineTasks = await loadWorkflowTasks(input);
 	assertValidDag(baselineTasks);
 	const budget: BudgetState = { totalCost: 0 };
@@ -208,6 +210,19 @@ async function scoreOutput(runner: SubagentRunner, evalCase: EvalCase, output: s
 function assertValidDag(tasks: SubagentTask[]): void {
 	const validation = validateDagTasks(tasks);
 	if (validation.issues.length > 0) throw new Error(validation.issues.map((issue) => issue.message).join("; "));
+}
+
+function collectScorerTasks(cases: EvalCase[]): SubagentTask[] {
+	return cases
+		.filter((evalCase) => evalCase.scorer)
+		.map((evalCase) => ({
+			name: `score-${evalCase.name}`,
+			agent: evalCase.scorer!.agent,
+			task: "Quality scorer for optimizer eval case",
+			model: evalCase.scorer!.model,
+			thinking: evalCase.scorer!.thinking,
+			tools: evalCase.scorer!.tools,
+		}));
 }
 
 function applyEvalCaseInput(tasks: SubagentTask[], evalCase: EvalCase): SubagentTask[] {

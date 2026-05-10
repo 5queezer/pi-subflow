@@ -1,6 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import type { AgentScope } from "../agents.js";
 import type { SubagentRunner, SubagentTask } from "../types.js";
 import { evaluateOptimizerRun, loadWorkflowTasks } from "./evaluator.js";
 import { formatOptimizerReport, writeOptimizerReport } from "./report.js";
@@ -11,6 +12,7 @@ export interface SubflowOptimizeToolParams {
 	dagYaml?: string;
 	evalSet: EvalSetInput;
 	candidateDagYamls?: string[];
+	agentScope?: AgentScope;
 	maxCandidateRuns?: number;
 	maxCost?: number;
 	maxRunCost?: number;
@@ -28,6 +30,7 @@ export const subflowOptimizeParameterSchema = Type.Object({
 		inline: Type.Optional(Type.Any()),
 	}),
 	candidateDagYamls: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+	agentScope: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("project"), Type.Literal("both")])),
 	maxCandidateRuns: Type.Optional(Type.Integer({ minimum: 1 })),
 	maxCost: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
 	maxRunCost: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
@@ -52,6 +55,7 @@ export function createSubflowOptimizeTool(options: {
 			"The tool does not mutate workflow files; future apply behavior must be a separate tool.",
 			"MVP candidateDagYamls are manual comparison inputs only. This tool does not generate candidates; pass them in candidateDagYamls.",
 			"Pass exactly one of workflowPath or dagYaml, and exactly one of evalSet.path or evalSet.inline.",
+			"agentScope defaults to 'user'; pass 'both' (or 'project') to evaluate workflows that depend on project-local agents under .pi/agents/. Otherwise project agents are not loaded and runs may misbehave.",
 			"maxCandidateRuns is a positive-integer budget cap on candidate repetitions; it can reduce but not increase evalSet.scoring.minRunsPerCase.",
 			"Use maxRunCost (per-run), maxCandidateCost (per-candidate), and maxTotalCost (global) as the explicit budgets. `maxCost` is a compatibility alias with current per-candidate behavior (and only serves as the run cap fallback when no dedicated budget caps are provided).",
 			"expectedSections/jsonSchema.required are structural gates only, not quality scores; recommendations require every eval case to define a quality scorer.",
