@@ -97,9 +97,11 @@ The optimizer must preserve the DAG validation boundary from ADR 0002. Candidate
 
 ## MVP interface
 
-`subflow_optimize` is the first concrete tool surface for this ADR. The dry-run optimizer should accept exactly one of `workflowPath` or `dagYaml`, exactly one of `evalSet.path` or `evalSet.inline`, and optional `candidateDagYamls`, `maxCandidateRuns`, `maxCost`, `maxConcurrency`, and `timeoutSeconds`.
+`subflow_optimize` is the first concrete tool surface for this ADR. The dry-run optimizer accepts exactly one of `workflowPath` or `dagYaml`, exactly one of `evalSet.path` or `evalSet.inline`, and optional manual `candidateDagYamls`, `maxCandidateRuns`, `maxCost`, `maxRunCost`, `maxCandidateCost`, `maxTotalCost`, `maxConcurrency`, and `timeoutSeconds`.
 
-Canonical eval sets live under `.pi/subflow/evals/*.yaml`. The tool should write report artifacts under `.pi/subflow/optimizer-reports/` and must not mutate workflow files. Any future file-replacement behavior belongs in a separate `subflow_optimize_apply` tool so the apply step is explicit and opt-in.
+Canonical eval sets live under `.pi/subflow/evals/*.yaml`. Structural checks (`expectedSections` and `jsonSchema.required`) are gates, not quality scores. Candidate recommendations require scorer-backed eval cases; structural-only eval sets remain profile-only. Eval input is injected into explicit `entryTasks` or root runnable tasks instead of every downstream prompt. Optional train/holdout splits let the optimizer select on train cases and require holdout gates before promotion.
+
+The tool writes collision-resistant report artifacts under `.pi/subflow/optimizer-reports/` with exclusive creation and must not mutate workflow files. Invalid or policy-failing candidates are reported per candidate and do not abort the whole dry run. Any future file-replacement behavior belongs in a separate `subflow_optimize_apply` tool so the apply step is explicit and opt-in.
 
 ## Consequences
 
@@ -120,9 +122,9 @@ Tradeoffs:
 ## Follow-up
 
 - Add trace fields needed for optimization: node output summaries, token/cost estimates, latency, retry counts, failures, model/thinking/tool configuration, and dependency metadata.
-- Define an eval-set format and scorer interface for target DAGs.
-- Expose the MVP as a dry-run-only Pi tool named `subflow_optimize`; keep mutation as a future separate apply operation that consumes a saved report.
-- Add a dry-run optimizer command that produces candidate DAG YAML and a scored comparison report without automatically replacing workflow files.
+- Improve scorer prompts and trace fields as more real eval sets are collected.
+- Expose generated candidate proposals only after scorer-backed evals and holdout checks are reliable.
+- Keep mutation as a future separate `subflow_optimize_apply` operation that consumes a saved report.
 - Consider an AWO-inspired pass that detects repeated tool-call sequences and suggests deterministic composite tools.
 - Keep README, wiki roadmap, and this ADR synchronized when this direction changes scope, public API, or implementation behavior.
 

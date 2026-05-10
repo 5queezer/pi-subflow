@@ -39,11 +39,41 @@
         "properties": {
           "name": { "type": "string", "minLength": 1 },
           "input": { "type": "string", "minLength": 1 },
+          "split": { "type": "string", "enum": ["train", "holdout"] },
+          "entryTasks": { "type": "array", "items": { "type": "string", "minLength": 1 } },
           "expectedSections": { "type": "array", "items": { "type": "string", "minLength": 1 } },
           "jsonSchema": {
             "type": "object",
             "additionalProperties": false,
-            "properties": { "required": { "type": "array", "items": { "type": "string", "minLength": 1 } } }
+            "properties": {
+              "required": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+            }
+          },
+          "scorer": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "agent", "rubric"],
+            "properties": {
+              "type": { "type": "string", "enum": ["judge"] },
+              "agent": { "type": "string", "minLength": 1 },
+              "model": { "type": "string", "minLength": 1 },
+              "thinking": { "type": "string", "enum": ["off", "minimal", "low", "medium", "high", "xhigh"] },
+              "tools": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+              "rubric": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "description", "weight"],
+                  "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "description": { "type": "string", "minLength": 1 },
+                    "weight": { "type": "number", "exclusiveMinimum": 0 }
+                  }
+                }
+              }
+            }
           }
         }
       }

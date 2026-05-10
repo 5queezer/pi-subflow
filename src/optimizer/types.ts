@@ -14,13 +14,31 @@ export interface OptimizerScoringPolicy {
 	maxFailureRateRegression: number;
 }
 
+export interface EvalCaseScorer {
+	type: "judge";
+	agent: string;
+	model?: string;
+	thinking?: SubagentTask["thinking"];
+	tools?: string[];
+	rubric: EvalCaseRubricCriterion[];
+}
+
+export interface EvalCaseRubricCriterion {
+	name: string;
+	description: string;
+	weight: number;
+}
+
 export interface EvalCase {
 	name: string;
 	input: string;
+	split: "train" | "holdout";
+	entryTasks?: string[];
 	expectedSections?: string[];
 	jsonSchema?: {
 		required?: string[];
 	};
+	scorer?: EvalCaseScorer;
 }
 
 export interface EvalSet {
@@ -56,7 +74,11 @@ export interface CandidateEvaluation {
 	dagYaml?: string;
 	error?: string;
 	metrics?: EvaluationMetrics;
+	trainMetrics?: EvaluationMetrics;
+	holdoutMetrics?: EvaluationMetrics;
 	utility?: number;
+	trainUtility?: number;
+	holdoutUtility?: number;
 	graph?: GraphMetrics;
 }
 
@@ -67,6 +89,8 @@ export interface EvaluationMetrics {
 	failureRate: number;
 	runs: number;
 	failures: number;
+	qualityAssessedRuns: number;
+	profileOnly: boolean;
 }
 
 export interface OptimizerReport {
@@ -90,6 +114,11 @@ export interface WorkflowCandidate {
 
 export interface CaseRunResult {
 	caseName: string;
+	split: EvalCase["split"];
 	result: FlowResult;
 	wallTimeMs: number;
+	taskScore: number;
+	structuralPassed: boolean;
+	qualityAssessed: boolean;
+	scorerOutput?: unknown;
 }

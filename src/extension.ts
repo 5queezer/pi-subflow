@@ -202,6 +202,19 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			});
 			return options.runnerFactory?.({ agents, ctx, params }) ?? new PiSdkRunner({ agentDefinitions: agents });
 		},
+		validateCandidateTasks: ({ ctx, tasks }) => {
+			const flowTasks = flattenPolicyTasks(tasks);
+			validateNonEmptyStrings(flowTasks);
+			validateExecutionPolicy({
+				agentScope: "user",
+				confirmProjectAgents: true,
+				hasUI: ctx.hasUI,
+				riskTolerance: "low",
+				allowExternalSideEffectWithoutConfirmation: false,
+				tasks: flowTasks,
+			});
+			validateToolAllowlist(flowTasks, options.allowedTools);
+		},
 	}));
 }
 

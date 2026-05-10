@@ -3,15 +3,40 @@ name: docs-consistency
 workflow: examples/workflows/recipes/docs-consistency.yaml
 objective:
   taskScore: 1
-  cost: 0
-  latency: 0
+  cost: 0.05
+  latency: 0.001
   instability: 1
   complexity: 0.25
 scoring:
-  minRunsPerCase: 1
+  minRunsPerCase: 2
   minUtilityDelta: 0.05
   maxFailureRateRegression: 0
 cases:
-  - name: readme-wiki-adr-schema-sync
+  - name: readme-wiki-adr-schema-sync-train
+    split: train
     input: Check README.md, doc/wiki, doc/adr, schemas, and src/extension.ts LLM-facing guidance for consistency.
     expectedSections: [Summary, Findings, Recommendation]
+    scorer:
+      type: judge
+      agent: reviewer
+      rubric:
+        - name: correctness
+          description: Findings accurately identify consistency problems or confirm consistency across the requested files.
+          weight: 1
+        - name: actionability
+          description: Recommendations are concrete enough for a maintainer to act on.
+          weight: 1
+  - name: optimizer-docs-holdout
+    split: holdout
+    input: Check optimizer-specific docs, schema, examples, and tool guidance for consistency without reusing train-case wording.
+    expectedSections: [Summary, Findings, Recommendation]
+    scorer:
+      type: judge
+      agent: reviewer
+      rubric:
+        - name: correctness
+          description: Findings are grounded in repository files and avoid unsupported claims.
+          weight: 1
+        - name: coverage
+          description: Output checks README, wiki, ADR, schema, examples, and LLM-facing guidance.
+          weight: 1

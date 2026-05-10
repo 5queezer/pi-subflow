@@ -870,14 +870,14 @@ test("subflow_optimize runs a baseline dry-run and writes a report", async () =>
 
 	assert.equal(result.isError, false);
 	assert.match(result.content[0].text, /subflow_optimize dry-run report/);
-	assert.match(result.content[0].text, /Report artifact: .*\.pi\/subflow\/optimizer-reports\/opt-[a-z0-9]+\.json/);
+	assert.match(result.content[0].text, /Report artifact: .*\.pi\/subflow\/optimizer-reports\/opt-[a-z0-9-]+\.json/);
 	const match = result.content[0].text.match(/Report artifact: (.*\.json)$/m);
 	assert(match);
 	assert.match(await readFile(match[1], "utf8"), /"evalSetName": "inline-docs"/);
 	assert.equal(runner.calls.length, 1);
 });
 
-test("subflow_optimize rejects disallowed candidate tools before running", async () => {
+test("subflow_optimize reports disallowed candidate tools without aborting baseline", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-opt-tool-"));
 	const runner = new RecordingRunner();
 	const pi = fakePi();
@@ -885,22 +885,22 @@ test("subflow_optimize rejects disallowed candidate tools before running", async
 	const tool = pi.tools.get("subflow_optimize");
 	assert(tool);
 
-	await assert.rejects(
-		() => tool.execute("call-1", {
-			dagYaml: "review:\n  agent: worker\n  task: Review docs\n",
-			candidateDagYamls: ["review:\n  agent: worker\n  tools: [write]\n  task: Review docs\n"],
-			evalSet: {
-				inline: {
-					name: "inline-docs",
-					objective: { taskScore: 1, cost: 0, latency: 0, instability: 1, complexity: 0 },
-					scoring: { minRunsPerCase: 1, minUtilityDelta: 0.05, maxFailureRateRegression: 0 },
-					cases: [{ name: "one", input: "Check docs" }],
-				},
+	const result = await tool.execute("call-1", {
+		dagYaml: "review:\n  agent: worker\n  task: Review docs\n",
+		candidateDagYamls: ["review:\n  agent: worker\n  tools: [write]\n  task: Review docs\n"],
+		evalSet: {
+			inline: {
+				name: "inline-docs",
+				objective: { taskScore: 1, cost: 0, latency: 0, instability: 1, complexity: 0 },
+				scoring: { minRunsPerCase: 1, minUtilityDelta: 0.05, maxFailureRateRegression: 0 },
+				cases: [{ name: "one", input: "Check docs" }],
 			},
-		}, undefined, undefined, fakeCtx(cwd)),
-		/unknown or unavailable tool: write/,
-	);
-	assert.equal(runner.calls.length, 0);
+		},
+	}, undefined, undefined, fakeCtx(cwd));
+
+	assert.equal(result.isError, false);
+	assert.match(result.content[0].text, /Candidate 1 invalid \(unknown or unavailable tool: write\)/);
+	assert.equal(runner.calls.length, 1);
 });
 
 test("subflow extension rejects empty agent or task strings", async () => {

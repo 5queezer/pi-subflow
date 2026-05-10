@@ -1,13 +1,16 @@
 import { realpath, readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { parseDocument } from "yaml";
-import type { EvalCase, EvalSet, EvalSetInput, LoadedEvalSet, OptimizerObjectiveWeights, OptimizerScoringPolicy } from "./types.js";
+import type { EvalCase, EvalCaseScorer, EvalSet, EvalSetInput, LoadedEvalSet, OptimizerObjectiveWeights, OptimizerScoringPolicy } from "./types.js";
 
 const evalSetTopLevelKeys = ["name", "workflow", "objective", "scoring", "cases"] as const;
 const evalSetObjectiveKeys = ["taskScore", "cost", "latency", "instability", "complexity"] as const;
 const evalSetScoringKeys = ["minRunsPerCase", "minUtilityDelta", "maxFailureRateRegression"] as const;
-const evalSetCaseKeys = ["name", "input", "expectedSections", "jsonSchema"] as const;
+const evalSetCaseKeys = ["name", "input", "split", "entryTasks", "expectedSections", "jsonSchema", "scorer"] as const;
 const evalSetJsonSchemaKeys = ["required"] as const;
+const evalSetScorerKeys = ["type", "agent", "model", "thinking", "tools", "rubric"] as const;
+const evalSetRubricKeys = ["name", "description", "weight"] as const;
+const thinkingValues = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 
 export async function loadEvalSet(input: { evalSet: EvalSetInput; cwd: string }): Promise<LoadedEvalSet> {
 	const hasPath = typeof input.evalSet.path === "string";
@@ -119,9 +122,18 @@ function normalizeCase(value: unknown, context: string): EvalCase {
 	return {
 		name: requiredString(value.name, `${context} name`),
 		input: requiredString(value.input, `${context} input`),
+		split: normalizeSplit(value.split, `${context} split`),
+		entryTasks: optionalStringArray(value.entryTasks, `${context} entryTasks`),
 		expectedSections: optionalStringArray(value.expectedSections, `${context} expectedSections`),
 		jsonSchema: normalizeJsonSchema(value.jsonSchema, `${context} jsonSchema`),
+		scorer: normalizeScorer(value.scorer, `${context} scorer`),
 	};
+}
+
+function normalizeSplit(value: unknown, context: string): EvalCase["split"] {
+	if (value === undefined) return "train";
+	if (value !== "train" && value !== "holdout") throw new Error(`${context} must be train or holdout`);
+	return value;
 }
 
 function normalizeJsonSchema(value: unknown, context: string): EvalCase["jsonSchema"] {
@@ -133,6 +145,35 @@ function normalizeJsonSchema(value: unknown, context: string): EvalCase["jsonSch
 	};
 }
 
+function normalizeScorer(value: unknown, context: string): EvalCaseScorer | undefined {
+	if (value === undefined) return undefined;
+	if (!isRecord(value)) throw new Error(`${context} must be a mapping`);
+	rejectUnknownKeys(value, evalSetScorerKeys, context);
+	if (value.type !== "judge") throw new Error(`${context} type must be judge`);
+	if (!Array.isArray(value.rubric) || value.rubric.length === 0) throw new Error(`${context} rubric must be a non-empty array`);
+	const thinking = optionalThinking(value.thinking, `${context} thinking`);
+	return {
+		type: "judge",
+		agent: requiredString(value.agent, `${context} agent`),
+		model: optionalString(value.model, `${context} model`),
+		thinking,
+		tools: optionalStringArray(value.tools, `${context} tools`),
+		rubric: value.rubric.map((item, index) => normalizeRubricCriterion(item, `${context} rubric[${index}]`)),
+	};
+}
+
+function normalizeRubricCriterion(value: unknown, context: string): EvalCaseScorer["rubric"][number] {
+	if (!isRecord(value)) throw new Error(`${context} must be a mapping`);
+	rejectUnknownKeys(value, evalSetRubricKeys, context);
+	const weight = requiredNumber(value.weight, `${context} weight`);
+	if (weight <= 0) throw new Error(`${context} weight must be greater than 0`);
+	return {
+		name: requiredString(value.name, `${context} name`),
+		description: requiredString(value.description, `${context} description`),
+		weight,
+	};
+}
+
 function requiredString(value: unknown, context: string): string {
 	if (typeof value !== "string" || value.trim() === "") throw new Error(`${context} must be a non-empty string`);
 	return value;
@@ -141,6 +182,12 @@ function requiredString(value: unknown, context: string): string {
 function optionalString(value: unknown, context: string): string | undefined {
 	if (value === undefined) return undefined;
 	return requiredString(value, context);
+}
+
+function optionalThinking(value: unknown, context: string): EvalCaseScorer["thinking"] | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "string" || !(thinkingValues as readonly string[]).includes(value)) throw new Error(`${context} must be one of ${thinkingValues.join(", ")}`);
+	return value as EvalCaseScorer["thinking"];
 }
 
 function requiredNumber(value: unknown, context: string): number {
@@ -181,5 +228,3 @@ function slug(name: string): string {
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-
-

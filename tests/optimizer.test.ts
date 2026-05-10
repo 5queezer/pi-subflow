@@ -345,7 +345,7 @@ test("evaluateOptimizerRun does not recommend candidates beyond maxFailureRateRe
 	assert.equal(report.baseline.metrics?.failureRate, 0);
 	assert.equal(report.candidates[0].metrics?.failureRate, 0.5);
 	assert((report.candidates[0].utility ?? -Infinity) > (report.baseline.utility ?? Infinity));
-	assert.match(report.recommendation, /No candidate cleared/);
+	assert.match(report.recommendation, /profile-only|quality scorers/);
 });
 
 test("evaluateOptimizerRun produces a baseline-only dry-run report", async () => {
@@ -368,7 +368,7 @@ test("evaluateOptimizerRun produces a baseline-only dry-run report", async () =>
 	assert.equal(report.baseline.status, "completed");
 	assert.equal(report.baseline.metrics?.runs, 1);
 	assert.equal(report.candidates.length, 0);
-	assert.match(report.recommendation, /No candidates supplied/);
+	assert.match(report.recommendation, /profile-only|quality scorers/);
 });
 
 test("evaluateOptimizerRun reports invalid candidates without executing them", async () => {
@@ -460,7 +460,7 @@ test("evaluateOptimizerRun evaluates valid manual candidates and reports recomme
 	});
 
 	assert.equal(report.candidates[0].status, "completed");
-	assert.match(report.recommendation, /No candidate cleared/);
+	assert.match(report.recommendation, /profile-only|quality scorers/);
 });
 
 test("writeOptimizerReport rejects unsafe report IDs", async () => {
@@ -533,7 +533,170 @@ test("writeOptimizerReport writes JSON and formatOptimizerReport renders summary
 	const saved = await readFile(path, "utf8");
 
 	assert.equal(isAbsolute(path), true);
-	assert.match(path, /\.pi\/subflow\/optimizer-reports\/opt-[a-z0-9]+\.json$/);
+	assert.match(path, /\.pi\/subflow\/optimizer-reports\/opt-[a-z0-9-]+\.json$/);
 	assert.match(saved, /"evalSetName": "inline-docs"/);
 	assert.match(formatOptimizerReport(report), /subflow_optimize dry-run report/);
+});
+
+test("evaluateOptimizerRun uses judge scores instead of cheapest structural completion", async () => {
+	const cwd = await tmpProject();
+	const runner = new MockSubagentRunner({
+		mock: async ({ task }) => ({ output: /Faster/.test(task) ? "## Summary\nCheap" : "## Summary\nHigh quality", usage: { cost: /Faster/.test(task) ? 0.01 : 1 } }),
+		judge: async ({ task }) => ({ output: JSON.stringify({ score: /Cheap/.test(task) ? 0.1 : 0.9, rationale: "graded" }), usage: { cost: 0 } }),
+	});
+	const report = await evaluateOptimizerRun({
+		cwd,
+		dagYaml: "review:\n  agent: mock\n  task: Review docs\n",
+		evalSet: {
+			inline: {
+				name: "scored-docs",
+				objective: { taskScore: 1, cost: 0.1, latency: 0, instability: 1, complexity: 0 },
+				scoring: { minRunsPerCase: 2, minUtilityDelta: 0.05, maxFailureRateRegression: 0 },
+				cases: [{
+					name: "one",
+					input: "Check docs",
+					expectedSections: ["Summary"],
+					scorer: { type: "judge", agent: "judge", rubric: [{ name: "quality", description: "Output quality", weight: 1 }] },
+				}],
+			},
+		},
+		candidateDagYamls: ["review:\n  agent: mock\n  task: Faster review\n"],
+		runner,
+	});
+
+	assert.equal(report.baseline.metrics?.taskScore, 0.9);
+	assert.equal(report.candidates[0].metrics?.taskScore, 0.1);
+	assert.match(report.recommendation, /No candidate cleared|keep the baseline/);
+});
+
+test("evaluateOptimizerRun injects eval input only into root tasks by default", async () => {
+	const cwd = await tmpProject();
+	const runner = new MockSubagentRunner({ mock: async () => "## Summary\nOk" });
+	await evaluateOptimizerRun({
+		cwd,
+		dagYaml: `
+root:
+  agent: mock
+  task: Root task
+downstream:
+  agent: mock
+  task: Downstream task
+  dependsOn: [root]
+`,
+		evalSet: { inline: baseEvalSet() },
+		runner,
+	});
+
+	assert.match(runner.calls[0].task, /Eval case input:\nCheck docs\./);
+	assert.doesNotMatch(runner.calls[1].task, /Eval case input:/);
+});
+
+test("evaluateOptimizerRun supports explicit entryTasks and rejects unknown entries", async () => {
+	const cwd = await tmpProject();
+	const runner = new MockSubagentRunner({ mock: async () => "## Summary\nOk" });
+	await evaluateOptimizerRun({
+		cwd,
+		dagYaml: `
+root:
+  agent: mock
+  task: Root task
+other:
+  agent: mock
+  task: Other task
+`,
+		evalSet: { inline: { ...baseEvalSet(), cases: [{ ...baseEvalSet().cases[0], entryTasks: ["other"] }] } },
+		runner,
+	});
+	assert.doesNotMatch(runner.calls[0].task, /Eval case input:/);
+	assert.match(runner.calls[1].task, /Eval case input:\nCheck docs\./);
+
+	await assert.rejects(
+		() => evaluateOptimizerRun({
+			cwd,
+			dagYaml: "root:\n  agent: mock\n  task: Root task\n",
+			evalSet: { inline: { ...baseEvalSet(), cases: [{ ...baseEvalSet().cases[0], entryTasks: ["missing"] }] } },
+			runner,
+		}),
+		/entryTasks references unknown task missing/,
+	);
+});
+
+test("evaluateOptimizerRun validates maxCandidateRuns as a positive integer", async () => {
+	const cwd = await tmpProject();
+	const runner = new MockSubagentRunner({ mock: async () => "## Summary\nOk" });
+	await assert.rejects(
+		() => evaluateOptimizerRun({ cwd, dagYaml: "review:\n  agent: mock\n  task: Review docs\n", evalSet: { inline: baseEvalSet() }, runner, maxCandidateRuns: 0 }),
+		/maxCandidateRuns must be a positive finite number|positive integer/,
+	);
+	await assert.rejects(
+		() => evaluateOptimizerRun({ cwd, dagYaml: "review:\n  agent: mock\n  task: Review docs\n", evalSet: { inline: baseEvalSet() }, runner, maxCandidateRuns: 1.5 }),
+		/maxCandidateRuns must be a positive integer/,
+	);
+});
+
+test("writeOptimizerReport refuses to overwrite an existing report", async () => {
+	const cwd = await tmpProject();
+	const report = {
+		reportId: "opt-fixed",
+		createdAt: new Date().toISOString(),
+		evalSetName: "inline-docs",
+		source: { kind: "inline" as const },
+		baseline: { id: "baseline", label: "Baseline", status: "completed" as const },
+		candidates: [],
+		recommendation: "profile only",
+		warnings: [],
+	};
+	await writeOptimizerReport(cwd, report);
+	await assert.rejects(() => writeOptimizerReport(cwd, report), /EEXIST/);
+});
+
+test("evaluateOptimizerRun injects default eval input into nested workflow roots only", async () => {
+	const cwd = await tmpProject();
+	const runner = new MockSubagentRunner({ mock: async () => "## Summary\nOk" });
+	await evaluateOptimizerRun({
+		cwd,
+		dagYaml: `
+parent:
+  workflow:
+    tasks:
+      root:
+        agent: mock
+        task: Nested root
+      child:
+        agent: mock
+        task: Nested child
+        dependsOn: [root]
+`,
+		evalSet: { inline: baseEvalSet() },
+		runner,
+	});
+
+	assert.match(runner.calls[0].task, /Eval case input:\nCheck docs\./);
+	assert.doesNotMatch(runner.calls[1].task, /Eval case input:/);
+});
+
+test("evaluateOptimizerRun injects default eval input into loop body roots only", async () => {
+	const cwd = await tmpProject();
+	const runner = new MockSubagentRunner({ mock: async () => "## Summary\nOk" });
+	await evaluateOptimizerRun({
+		cwd,
+		dagYaml: `
+loop:
+  loop:
+    maxIterations: 1
+    body:
+      root:
+        agent: mock
+        task: Loop root
+      child:
+        agent: mock
+        task: Loop child
+        dependsOn: [root]
+`,
+		evalSet: { inline: baseEvalSet() },
+		runner,
+	});
+
+	assert.match(runner.calls[0].task, /Eval case input:\nCheck docs\./);
+	assert.doesNotMatch(runner.calls[1].task, /Eval case input:/);
 });
