@@ -97,9 +97,9 @@ The optimizer must preserve the DAG validation boundary from ADR 0002. Candidate
 
 ## MVP interface
 
-`subflow_optimize` is the first concrete tool surface for this ADR. The dry-run optimizer accepts exactly one of `workflowPath` or `dagYaml`, exactly one of `evalSet.path` or `evalSet.inline`, and optional manual `candidateDagYamls`, `maxCandidateRuns`, `maxCost`, `maxRunCost`, `maxCandidateCost`, `maxTotalCost`, `maxConcurrency`, and `timeoutSeconds`. Exact-one invariants are enforced in the optimizer runtime (`evaluateOptimizerRun` → `loadWorkflowTasks` and `loadEvalSet`) before any candidate execution.
+`subflow_propose_candidates` is the first candidate-generation surface for this ADR. It proposes validated authoring artifacts only; it does not run, score, or mutate workflows. `subflow_optimize` remains the evaluator: it accepts exactly one of `workflowPath` or `dagYaml`, exactly one of `evalSet.path` or `evalSet.inline`, and optional manual `candidateDagYamls`, `maxCandidateRuns`, `maxCost`, `maxRunCost`, `maxCandidateCost`, `maxTotalCost`, `maxConcurrency`, and `timeoutSeconds`. Exact-one invariants are enforced in the optimizer runtime (`evaluateOptimizerRun` → `loadWorkflowTasks` and `loadEvalSet`) before any candidate execution.
 
-Canonical eval sets live under `.pi/subflow/evals/*.yaml`. Structural checks (`expectedSections` and `jsonSchema.required`) are gates, not quality scores. Candidate recommendations require scorer-backed eval cases; structural-only eval sets remain profile-only. Eval input is injected into explicit `entryTasks` or root runnable tasks instead of every downstream prompt. Optional train/holdout splits let the optimizer select on train cases and require holdout gates before promotion.
+Canonical eval sets live under `.pi/subflow/evals/*.yaml`. Structural checks (`expectedSections` and `jsonSchema.required`) are gates, not quality scores. Candidate recommendations require scorer-backed eval cases; structural-only eval sets remain profile-only. Eval input is injected into explicit `entryTasks` or root runnable tasks instead of every downstream prompt. Optional train/holdout splits let the optimizer select on train cases and require holdout gates before promotion. File replacement remains out of scope until a separate apply tool is introduced.
 
 The tool writes collision-resistant report artifacts under `.pi/subflow/optimizer-reports/` with exclusive creation and must not mutate workflow files. Invalid or policy-failing candidates are reported per candidate and do not abort the whole dry run. Any future file-replacement behavior belongs in a separate `subflow_optimize_apply` tool so the apply step is explicit and opt-in. That separation is intentional while this feature remains dry-run-only; replacement is not yet implemented to keep optimization experiments non-destructive until evaluator reliability, regression controls, and policy/allowlist safeguards are productionized in a separate command.
 
@@ -123,8 +123,8 @@ Tradeoffs:
 
 - Add trace fields needed for optimization: node output summaries, token/cost estimates, latency, retry counts, failures, model/thinking/tool configuration, and dependency metadata.
 - Improve scorer prompts and trace fields as more real eval sets are collected.
-- Expose generated candidate proposals only after scorer-backed evals and holdout checks are reliable.
 - Keep mutation as a separate `subflow_optimize_apply` operation that consumes a saved report, and keep it unreleased until dry-run metrics, holdout gates, and safety policies are sufficiently stable for explicit file replacement.
+- Keep file replacement out of scope until a separate apply tool is introduced.
 - Consider an AWO-inspired pass that detects repeated tool-call sequences and suggests deterministic composite tools.
 - Keep README, wiki roadmap, and this ADR synchronized when this direction changes scope, public API, or implementation behavior.
 

@@ -22,6 +22,12 @@ subflow_optimize({
 
 Use `workflowPath` or `dagYaml`, but not both. Use `evalSet.path` or `evalSet.inline`, but not both. `candidateDagYamls` is optional and holds manually proposed replacements for comparison. `agentScope` defaults to `"user"`; set it to `"both"` (or `"project"`) when the workflow under evaluation depends on project-local agents under `.pi/agents/`, otherwise those agents are not loaded.
 
+## Candidate proposal
+
+`subflow_propose_candidates` generates validated static DAG candidate YAML proposals. It does not run candidates, score them, write reports, or mutate workflow files.
+
+Review the valid outputs, then pass selected YAML strings to `subflow_optimize` as `candidateDagYamls`. Promote changes manually only after scorer-backed optimizer reports justify the change.
+
 ## Eval sets
 
 Canonical eval sets live under `.pi/subflow/evals/*.yaml`. Inline eval sets are useful for experiments, but if an eval becomes reusable, save it in that directory so it can be reviewed and reused.
@@ -87,5 +93,5 @@ Treat objective weights as λ calibration coefficients for the eval set. Example
 ## Follow-up
 
 - Add trace capture for node outputs, token/cost estimates, latency, retries, and dependency metadata.
-- Add generated candidate proposals only after scorer-backed evals and holdout checks are reliable.
+- Keep file replacement out of scope until a separate `subflow_optimize_apply` tool exists.
 - Introduce `subflow_optimize_apply` as a separate tool only after dry-run evaluation is stable.
