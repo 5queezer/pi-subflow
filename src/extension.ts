@@ -11,6 +11,8 @@ import { validateExecutionPolicy } from "./policy.js";
 import { normalizeDagYaml, normalizeNestedWorkflows } from "./dag-yaml.js";
 import { PiSdkRunner } from "./runner.js";
 import { collectOptimizerPolicyTasks, createSubflowOptimizeTool, type SubflowOptimizeToolParams } from "./optimizer/tool.js";
+import { proposeCandidates } from "./optimizer/proposer.js";
+import type { CandidateProposerInput, CandidateProposerResult } from "./optimizer/types.js";
 import type { ChainStep, ExecutionOptions, FlowMode, FlowResult, SubagentResult, SubagentRunner, SubagentTask, TraceEvent } from "./types.js";
 import { runChain } from "./flows/chain.js";
 import { runDag } from "./flows/dag.js";
@@ -103,6 +105,7 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			"Use subflow only for bounded multi-agent work with clear inputs/outputs; skip it for small direct tasks.",
 			"Modes: single=one focused task; chain=later steps consume {previous}; parallel=2+ independent tasks; DAG=explicit dependsOn, conditional when edges, verifier fan-in, or bounded loops; loop=repeat a namespaced body with loop.maxIterations and optional until.",
 			"Use subflow DAG mode with role: \"verifier\" for synthesis/validation needing dependency outputs; task names must be unique, and missing deps/self-deps/cycles fail before execution.",
+			"Use subflow_propose_candidates to generate validated static DAG candidate YAML proposals; it does not execute, evaluate, or mutate workflows, and valid dagYaml outputs can be passed to subflow_optimize via candidateDagYamls.",
 			"For LLM-authored DAGs prefer dagYaml: YAML mapping task names to fields; needs aliases dependsOn, but do not set both.",
 			"Nested workflows use workflow.tasks or workflow.dagYaml; workflow.uses is reserved/schema-only for now; children are namespaced under the parent task, parent dependsOn flows into workflow roots, and downstream tasks can depend on the parent workflow name to read its synthetic summary.",
 			"Bounded loops use loop.maxIterations (capped at 100) with a body mapping or array; iteration bodies are namespaced per pass, inherit parent dependencies on the first pass, and can stop early when until resolves true against current-iteration aliases like ${editor.output.continue}.",
@@ -146,6 +149,43 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 		},
 		async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
 			return executeSubflow(rawParams as SubflowToolParams, ctx, options, signal);
+		},
+	});
+
+	pi.registerTool({
+		name: "subflow_propose_candidates",
+		label: "Pi Subflow Candidate Proposer",
+		description: "Generate validated static DAG candidate YAML proposals without executing, evaluating, or mutating workflows.",
+		promptSnippet: "subflow_propose_candidates: generate validated static DAG candidate YAML proposals only; does not execute, evaluate, or mutate workflows; pass valid dagYaml strings to subflow_optimize as candidateDagYamls.",
+		promptGuidelines: [
+			"Use subflow_propose_candidates when you need candidate DAG YAML proposals for later evaluation, not when you want to run workflows.",
+			"This tool generates validated static DAG candidate YAMLs only; it does not execute candidates, evaluate them, or mutate workflow files.",
+			"Pass the valid dagYaml strings it returns to subflow_optimize via candidateDagYamls for dry-run comparison.",
+		],
+		renderShell: "self",
+		parameters: Type.Object({
+			workflowPath: Type.Optional(Type.String({ minLength: 1, description: "Source workflow file to propose candidates from." })),
+			dagYaml: Type.Optional(Type.String({ minLength: 1, description: "Inline DAG YAML to analyze for candidate proposals." })),
+			evalSet: Type.Optional(Type.Object({
+				path: Type.Optional(Type.String({ minLength: 1 })),
+				inline: Type.Optional(Type.Any()),
+			})),
+			count: Type.Optional(Type.Integer({ minimum: 1 })),
+			strategy: Type.Optional(Type.Union([Type.Literal("safe"), Type.Literal("exploratory")])),
+		}),
+		renderCall() {
+			return new Text("", 0, 0);
+		},
+		renderResult(result) {
+			return new Text((result.content ?? []).map((item) => item.type === "text" ? item.text : "").join("\n"), 0, 0);
+		},
+		async execute(_toolCallId, rawParams, _signal, _onUpdate, _ctx) {
+			const proposalResult = await proposeCandidates(rawParams as CandidateProposerInput);
+			return {
+				content: [{ type: "text" as const, text: formatCandidateProposerResult(proposalResult) }],
+				details: proposalResult,
+				isError: proposalResult.status === "failed",
+			};
 		},
 	});
 
@@ -838,6 +878,31 @@ function truncate(value: string, width: number): string {
 
 function formatCall(_params: SubflowToolParams): string {
 	return "";
+}
+
+function formatCandidateProposerResult(result: CandidateProposerResult): string {
+	const lines = [
+		`subflow_propose_candidates · ${result.status}`,
+		`strategy: ${result.strategy}`,
+		`requestedCount: ${result.requestedCount}`,
+		"",
+		result.summary,
+	];
+	for (const proposal of result.proposals) {
+		lines.push(
+			"",
+			`## ${proposal.title}`,
+			proposal.explanation,
+			`- valid: ${proposal.valid}`,
+			proposal.errors.length ? `- errors: ${proposal.errors.join("; ")}` : `- errors: none`,
+			"",
+			"```yaml",
+			proposal.dagYaml.trimEnd(),
+			"```",
+		);
+	}
+	if (result.proposals.length === 0) lines.push("", "No candidate YAMLs generated.");
+	return lines.join("\n");
 }
 
 function formatResult(result: FlowResult, mode: FlowMode): string {

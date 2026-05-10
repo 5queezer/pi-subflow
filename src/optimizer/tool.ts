@@ -53,7 +53,7 @@ export function createSubflowOptimizeTool(options: {
 			"Use subflow_optimize for ADR 0003 workflow optimization experiments, not for normal subagent delegation.",
 			"canonical eval sets live under .pi/subflow/evals/*.yaml; inline evalSet is a convenience only and should be saved if useful.",
 			"The tool does not mutate workflow files; future apply behavior must be a separate tool.",
-			"MVP candidateDagYamls are manual comparison inputs only. This tool does not generate candidates; pass them in candidateDagYamls.",
+			"MVP candidateDagYamls are manual comparison inputs only. This tool does not generate candidates; pass valid dagYaml strings in candidateDagYamls, including outputs from subflow_propose_candidates.",
 			"Pass exactly one of workflowPath or dagYaml, and exactly one of evalSet.path or evalSet.inline.",
 			"agentScope defaults to 'user'; pass 'both' (or 'project') to evaluate workflows that depend on project-local agents under .pi/agents/. Otherwise project agents are not loaded and runs may misbehave.",
 			"maxCandidateRuns is a positive-integer budget cap on candidate repetitions; it can reduce but not increase evalSet.scoring.minRunsPerCase.",

@@ -41,6 +41,29 @@ test("subflow extension registers subflow_optimize with LLM-facing guidance", ()
 	assert(tool.promptGuidelines.some((line: string) => /canonical.*\.pi\/subflow\/evals/.test(line)));
 	assert(tool.promptGuidelines.some((line: string) => /maxCandidateRuns.*budget cap/.test(line)));
 	assert(tool.promptGuidelines.some((line: string) => /does not mutate/.test(line)));
+	assert(tool.promptGuidelines.some((line: string) => /subflow_propose_candidates/.test(line)));
+});
+
+test("subflow extension registers subflow_propose_candidates with LLM-facing guidance", async () => {
+	const pi = fakePi();
+	registerPiSubflowExtension(pi);
+	const tool = pi.tools.get("subflow_propose_candidates");
+	assert(tool, "expected subflow_propose_candidates tool to be registered");
+
+	assert.equal(tool.name, "subflow_propose_candidates");
+	assert.match(tool.description ?? "", /validated static DAG candidate YAML proposals/i);
+	assert.match(tool.promptSnippet ?? "", /does not execute, evaluate, or mutate workflows/i);
+	assert(tool.promptGuidelines.some((line: string) => /does not execute candidates/i.test(line)));
+	assert(tool.promptGuidelines.some((line: string) => /subflow_optimize/i.test(line) && /candidateDagYamls/i.test(line)));
+
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const result = await tool.execute("call-1", {
+		dagYaml: `research:\n  agent: researcher\n  task: Research the topic.\n\nrepo:\n  agent: researcher\n  task: Inspect repository evidence.\n`,
+	}, undefined, undefined, fakeCtx(cwd));
+
+	assert.match(result.content[0].text, /subflow_propose_candidates · completed/);
+	assert.match(result.content[0].text, /```yaml/);
+	assert.match(result.content[0].text, /synthesis:/);
 });
 
 test("subflow extension registers a Pi tool that runs a single task and appends history", async () => {
