@@ -14,7 +14,7 @@ export async function proposeCandidates(input: CandidateProposerInput): Promise<
 	const sourceDagYaml = input.dagYaml ?? (await readFile(resolve(input.workflowPath ?? ""), "utf8"));
 	const tasks = loadDagTasks(sourceDagYaml);
 	const proposal = buildVerifierFanInCandidate(tasks);
-	const requestedCount = input.count ?? 1;
+	const requestedCount = input.count ?? 3;
 	const proposals = proposal && requestedCount > 0 ? [proposal] : [];
 	const validCount = proposals.filter((candidate) => candidate.valid).length;
 

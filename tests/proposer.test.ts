@@ -19,6 +19,7 @@ test("proposeCandidates returns a valid verifier fan-in candidate for a multi-ro
 	});
 
 	assert.equal(result.status, "completed");
+	assert.equal(result.requestedCount, 1);
 	assert.equal(result.proposals.length, 1);
 	const [proposal] = result.proposals;
 	assert.equal(proposal.valid, true);
@@ -26,4 +27,13 @@ test("proposeCandidates returns a valid verifier fan-in candidate for a multi-ro
 	assert.match(proposal.dagYaml, /synthesis:/);
 	assert.match(proposal.dagYaml, /dependsOn:\n\s+- research\n\s+- repo/);
 	assert.match(proposal.dagYaml, /role: verifier/);
+});
+
+test("proposeCandidates defaults requestedCount to 3", async () => {
+	const result = await proposeCandidates({
+		dagYaml: `research:\n  agent: researcher\n  task: Research the topic.\n\nrepo:\n  agent: researcher\n  task: Inspect repository evidence.\n`,
+	});
+
+	assert.equal(result.requestedCount, 3);
+	assert.equal(result.proposals.length, 1);
 });
