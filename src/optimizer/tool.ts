@@ -53,7 +53,7 @@ export function createSubflowOptimizeTool(options: {
 			"MVP candidateDagYamls are manual comparison inputs only. This tool does not generate candidates; pass them in candidateDagYamls.",
 			"Pass exactly one of workflowPath or dagYaml, and exactly one of evalSet.path or evalSet.inline.",
 			"maxCandidateRuns is a positive-integer budget cap on candidate repetitions; it can reduce but not increase evalSet.scoring.minRunsPerCase.",
-			"Use maxRunCost, maxCandidateCost, and maxTotalCost for distinct budgets; maxCost is a compatibility alias for per-candidate budget behavior.",
+			"Use maxRunCost (per-run), maxCandidateCost (per-candidate), and maxTotalCost (global) as the explicit budgets. `maxCost` is a compatibility alias with current per-candidate behavior (and only serves as the run cap fallback when no dedicated budget caps are provided).",
 			"expectedSections/jsonSchema.required are structural gates only, not quality scores; recommendations require every eval case to define a quality scorer.",
 			"Structural-only or single-run evals are profile-only and do not recommend candidates.",
 			"Invalid candidate DAG YAMLs and policy/allowlist failures are reported per candidate and do not abort the whole optimizer run.",

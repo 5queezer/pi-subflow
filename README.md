@@ -18,7 +18,7 @@ Use it when work benefits from independent research/review streams, staged hando
 - Project/user agent discovery with policy gates
 - Runtime tool allowlist checks
 - Workflow slash commands from `.pi/subflow/workflows/*.{yaml,yml}` and `~/.pi/agent/subflow/workflows/*.{yaml,yml}`
-- Dry-run workflow optimization with `subflow_optimize`, scorer-backed eval sets, objective scoring, manual candidate comparison, train/holdout splits, and safe JSON reports
+- Dry-run workflow optimization with `subflow_optimize`, scorer-backed eval sets, objective scoring, manual candidate comparison, train/holdout splits, budget controls, and safe JSON reports in `.pi/subflow/optimizer-reports/`
 - JSONL run history at `.pi/subflow/runs.jsonl`
 
 ## Quick start
@@ -131,6 +131,35 @@ Before submitting changes, run:
 ```bash
 npm run build && npm test
 ```
+
+## Optimizer
+
+`subflow_optimize` is dry-run-only and writes JSON reports without mutating workflow files:
+
+```text
+subflow_optimize({
+  workflowPath | dagYaml,
+  evalSet: { path | inline },
+  candidateDagYamls?,
+  maxCandidateRuns?,
+  maxCost?,
+  maxRunCost?,
+  maxCandidateCost?,
+  maxTotalCost?,
+  maxConcurrency?,
+  timeoutSeconds?,
+})
+```
+
+- Canonical eval sets should be stored at `.pi/subflow/evals/*.yaml` and loaded via `evalSet.path`.
+- For quick experiments, use `evalSet.inline` (not recommended for reusable cases).
+- `maxCandidateRuns` limits candidate runs per case.
+- `maxRunCost` caps cost per run, `maxCandidateCost` caps total cost per candidate, and `maxTotalCost` caps total optimizer spend.
+- `maxCost` is a compatibility alias for current per-candidate budget behavior; when no dedicated caps are provided, it is also passed as the run-level cost cap.
+- `maxConcurrency` and `timeoutSeconds` control executor behavior.
+- Invalid candidates are reported individually and do not abort the entire optimizer run.
+- Reports are written under `.pi/subflow/optimizer-reports/`.
+- Optimizer assets: [`examples/evals/docs-consistency.yaml`](examples/evals/docs-consistency.yaml), [`examples/workflows/recipes/docs-consistency.yaml`](examples/workflows/recipes/docs-consistency.yaml)
 
 ## Documentation
 
