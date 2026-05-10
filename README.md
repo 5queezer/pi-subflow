@@ -101,7 +101,6 @@ Recipes (concrete jobs):
 - [`research-synthesis.yaml`](examples/workflows/recipes/research-synthesis.yaml)
 - [`docs-consistency.yaml`](examples/workflows/recipes/docs-consistency.yaml)
 - [`bug-investigation.yaml`](examples/workflows/recipes/bug-investigation.yaml)
-- [`adr-0003-optimizer-hardening.yaml`](examples/workflows/recipes/adr-0003-optimizer-hardening.yaml)
 
 Patterns (reusable DAG shapes — see [Workflow patterns](https://github.com/5queezer/pi-subflow/wiki/Workflow-patterns) for model fit and rationale):
 

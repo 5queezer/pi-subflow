@@ -2,9 +2,9 @@
 # Pattern: Two-Tier Audit (cheap gate before expensive fan-out).
 # See doc/wiki/Workflow-patterns.md for the model fit table and rationale.
 #
-# Pure-DAG limitation: conditional edges. Until `when:` short-circuits descendants,
-# the parallel audits run on every input and the verifier short-circuits in software.
-# When conditional edges land, gate the audits with `when: "${triage.output.pass} == true"`.
+# This example short-circuits the verifier in software for illustration. To skip the
+# expensive audits when triage rejects, add `when: "${triage.output.pass} == true"`
+# to each audit task — descendants of a false `when` are marked `skipped`.
 generator:
   agent: planner
   model: openai-codex/gpt-5.5

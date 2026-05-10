@@ -162,17 +162,15 @@ Generalization of the standard "review N files in parallel" pattern. The interme
 
 Wall-clock: bound by the reviewers (parallel) plus the final synth. Spark fit: ideal for the splitter; for reviewers, only if N is small *and* instructions are tight — otherwise Spark's quota drains mid-fan-out.
 
-## What pure DAG cannot express
+## Beyond pure DAG
 
-Three roadmap items, ranked by how often they actually constrain real workflows:
+The DAG path already supports the three features that pure-DAG semantics cannot express. See [[DAGs]] for full schema and validation rules.
 
-1. **Conditional edges** (boolean predicate on task output). Patterns 2 and 4 both need this. Highest frequency. Without it, every downstream branch runs even when the gate would have rejected.
-2. **Nested workflows** (a task IS a sub-DAG). Required to compose `code-review.yaml` inside `implementation-planning.yaml`. Without it, workflows duplicate or inline.
-3. **Bounded loops** (researcher to writer to editor to "more research?" back to researcher). Pure DAG forbids cycles. Workaround: unroll to fixed depth (`researcher_v1 to writer_v1 to editor to researcher_v2`). Ugly but bounded, and arguably safer than uncapped recursion.
+1. **Conditional edges** — `when:` on a task is a safe expression over upstream outputs (e.g. `${triage.output.score} > 0.7`). When false, the task and its descendants are marked `skipped` so the verifier can distinguish pruned from failed. Referenced tasks must be dependencies; this is enforced at validation time.
+2. **Nested workflows** — a task can carry an inline `workflow:` (with `tasks` or `dagYaml`). Child task names are namespaced under the parent (e.g. `review.api`), parent `dependsOn` values flow into workflow roots, and the parent exposes a synthetic summary result for downstream dependents.
+3. **Bounded loops** — `loop: { maxIterations, body, until }` repeats a namespaced subgraph with an early-stop expression. `maxIterations` is capped by `MAX_LOOP_ITERATIONS` so cycles stay bounded.
 
-Conditional edges before nested workflows. The frequency gap is large.
-
-**Proposed schema addition for conditional edges:**
+Example — gate audits on a cheap triage:
 
 ```yaml
 deploy:
@@ -182,7 +180,7 @@ deploy:
   when: "${audit.output.score} > 0.7"
 ```
 
-Predicate is a JSONPath-style expression over upstream task outputs, evaluated at edge-traversal time. If false, the task and its descendants are skipped (and a `skipped` status propagates so the verifier knows what was pruned versus failed).
+Remaining graph-roadmap items (dynamic dependencies, richer diagnostics, visualization) are tracked in [[Roadmap]].
 
 ## Go further
 
