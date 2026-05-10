@@ -43,13 +43,7 @@
           "type": "string"
         }
       },
-      "not": {
-        "required": [
-          "tasks",
-          "dagYaml"
-        ]
-      },
-      "anyOf": [
+      "oneOf": [
         {
           "required": [
             "tasks"

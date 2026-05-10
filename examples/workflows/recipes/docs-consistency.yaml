@@ -19,26 +19,37 @@ adr-review:
   tools: [read, bash]
   thinking: low
 
+wiki-schema-review:
+  agent: reviewer
+  model: openai-codex/gpt-5.4-mini
+  task: |
+    Review doc/wiki, schemas, examples, and src/extension.ts for consistency with
+    README.md and doc/adr guidance. Flag stale schema fields, outdated examples,
+    or LLM-facing guidance drift.
+  tools: [read, bash]
+  thinking: low
+
 prompt-guidance-review:
   agent: reviewer
   model: openai-codex/gpt-5.4-mini
   task: |
     Review LLM-facing guidance such as promptSnippet, promptGuidelines, schemas,
-    and examples. Check whether assistants will know how to use the behavior safely.
+    examples, and src/extension.ts. Check whether assistants will know how to use
+    the behavior safely.
   tools: [read, bash]
   thinking: low
 
 consistency-verdict:
   agent: reviewer
-  model: openai-codex/gpt-5.5
+  model: openai-codex/gpt-5.4-mini
   role: verifier
-  needs: [readme-review, adr-review, prompt-guidance-review]
+  needs: [readme-review, adr-review, wiki-schema-review, prompt-guidance-review]
   task: |
-    Synthesize documentation consistency findings. Separate required documentation
-    fixes from optional polish, and name every file that should change.
+    Synthesize documentation consistency findings. Name every file that should change.
     Use exactly these markdown headings:
-    ## Required fixes
-    ## Optional polish
+    ## Summary
+    ## Findings
+    ## Recommendation
   tools: [read]
   thinking: medium
-  expectedSections: [Required fixes, Optional polish]
+  expectedSections: [Summary, Findings, Recommendation]

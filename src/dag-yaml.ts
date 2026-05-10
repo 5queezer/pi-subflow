@@ -40,6 +40,7 @@ function normalizeLoopDefinition(loop: SubagentTask["loop"] | undefined, context
 function normalizeWorkflowDefinition(workflow: SubagentTask["workflow"] | undefined, context: string): SubagentTask["workflow"] | undefined {
 	if (!workflow) return undefined;
 	if (workflow.dagYaml && workflow.tasks) throw new Error(`${context} workflow cannot set both dagYaml and tasks`);
+	if (workflow.uses && (workflow.dagYaml || workflow.tasks)) throw new Error(`${context} workflow cannot set uses with dagYaml or tasks`);
 	if (workflow.dagYaml) return { ...workflow, tasks: parseDagYaml(workflow.dagYaml) };
 	if (workflow.uses) return workflow;
 	return { ...workflow, tasks: normalizeWorkflowTasksValue(workflow.tasks, context) };
@@ -97,11 +98,13 @@ function parseDagYamlWorkflow(value: unknown, name: string): SubagentTask["workf
 	if (value === undefined) return undefined;
 	if (!isRecord(value) || Array.isArray(value)) throw new Error(`dagYaml task ${name} workflow must be a mapping`);
 	if (value.dagYaml !== undefined && value.tasks !== undefined) throw new Error(`dagYaml task ${name} workflow cannot set both dagYaml and tasks`);
-	if (value.dagYaml !== undefined) return { dagYaml: optionalString(value.dagYaml, `dagYaml task ${name} workflow.dagYaml`), uses: optionalString(value.uses, `dagYaml task ${name} workflow.uses`) };
+	const uses = optionalString(value.uses, `dagYaml task ${name} workflow.uses`);
+	if (uses !== undefined && (value.dagYaml !== undefined || value.tasks !== undefined)) throw new Error(`dagYaml task ${name} workflow cannot set uses with dagYaml or tasks`);
+	if (value.dagYaml !== undefined) return { dagYaml: optionalString(value.dagYaml, `dagYaml task ${name} workflow.dagYaml`), uses };
 	return {
 		tasks: parseWorkflowTasksValue(value.tasks, `dagYaml task ${name} workflow`),
 		dagYaml: undefined,
-		uses: optionalString(value.uses, `dagYaml task ${name} workflow.uses`),
+		uses,
 	};
 }
 

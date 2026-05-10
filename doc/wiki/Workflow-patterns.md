@@ -167,7 +167,7 @@ Wall-clock: bound by the reviewers (parallel) plus the final synth. Spark fit: i
 The DAG path already supports the three features that pure-DAG semantics cannot express. See [[DAGs]] for full schema and validation rules.
 
 1. **Conditional edges** — `when:` on a task is a safe expression over upstream outputs (e.g. `${triage.output.score} > 0.7`). When false, the task and its descendants are marked `skipped` so the verifier can distinguish pruned from failed. Referenced tasks must be dependencies; this is enforced at validation time.
-2. **Nested workflows** — a task can carry an inline `workflow:` (with `tasks` or `dagYaml`). Child task names are namespaced under the parent (e.g. `review.api`), parent `dependsOn` values flow into workflow roots, and the parent exposes a synthetic summary result for downstream dependents.
+2. **Nested workflows** — a task can carry a `workflow:` with inline `tasks`, inline `dagYaml`, or a static relative include via `uses`. Child task names are namespaced under the parent (e.g. `review.api`), parent `dependsOn` values flow into workflow roots, and the parent exposes a synthetic summary result for downstream dependents.
 3. **Bounded loops** — `loop: { maxIterations, body, until }` repeats a namespaced subgraph with an early-stop expression. `maxIterations` is capped by `MAX_LOOP_ITERATIONS` so cycles stay bounded.
 
 Example — gate audits on a cheap triage:

@@ -36,6 +36,36 @@ bad:
 	);
 });
 
+test("parseDagYaml rejects workflow.uses with workflow.dagYaml", () => {
+	assert.throws(
+		() => parseDagYaml(`
+review:
+  workflow:
+    uses: ./pattern.yaml
+    dagYaml: |
+      api:
+        agent: reviewer
+        task: Review API
+`),
+		/dagYaml task review workflow cannot set uses with dagYaml or tasks/,
+	);
+});
+
+test("parseDagYaml rejects workflow.uses with workflow.tasks", () => {
+	assert.throws(
+		() => parseDagYaml(`
+review:
+  workflow:
+    uses: ./pattern.yaml
+    tasks:
+      api:
+        agent: reviewer
+        task: Review API
+`),
+		/dagYaml task review workflow cannot set uses with dagYaml or tasks/,
+	);
+});
+
 test("normalizeNestedWorkflows parses nested dagYaml and loop body mappings", () => {
 	const normalized = normalizeNestedWorkflows({
 		tasks: [

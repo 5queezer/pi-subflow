@@ -96,7 +96,7 @@ If the expression is false, the task is skipped. If the expression is invalid or
 
 ### Nested workflows
 
-A DAG task can contain an inline nested workflow with `workflow.tasks` or `workflow.dagYaml`. Child task names are namespaced under the parent task (for example, `review.api`), parent `dependsOn` values flow into workflow roots, and the parent task exposes a synthetic summary result for downstream dependents. `workflow.uses` is accepted by the schema but is currently reserved and has no runtime effect.
+A DAG task can contain a nested workflow with `workflow.tasks`, `workflow.dagYaml`, or `workflow.uses`. Child task names are namespaced under the parent task (for example, `review.api`), parent `dependsOn` values flow into workflow roots, and the parent task exposes a synthetic summary result for downstream dependents. `workflow.uses` statically includes a relative YAML workflow file under the discovered workflow root for workflow-command execution, letting recipes compose reusable pattern files without copy/pasting the child tasks.
 
 ### Bounded loops
 

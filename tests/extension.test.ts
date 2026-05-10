@@ -26,6 +26,7 @@ test("subflow extension exposes LLM-facing prompt guidance", () => {
 	assert(pi.tool.promptGuidelines.some((line: string) => /only use "worker" or "verifier"/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /task names must be unique/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /workflow\.tasks/.test(line)));
+	assert(pi.tool.promptGuidelines.some((line: string) => /workflow\.uses paths.*must stay inside the discovered workflow root/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /loop\.maxIterations/.test(line)));
 	assert(pi.tool.promptGuidelines.some((line: string) => /minimum tool subset/.test(line)));
 });
@@ -755,6 +756,123 @@ test("workflow prompt stub discovery preserves manual prompt files that share wo
 
 	assert.deepEqual(discoverResults, [{ promptPaths: [promptDir] }]);
 	assert.equal(await readFile(join(promptDir, "code-review.md"), "utf8"), "# Manual prompt\n");
+});
+
+test("workflow slash command expands nested workflow.uses with a workflow-relative include", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const workflowsDir = join(cwd, ".pi", "subflow", "workflows");
+	await mkdir(workflowsDir, { recursive: true });
+	await mkdir(join(workflowsDir, "patterns"), { recursive: true });
+	await writeFile(
+		join(workflowsDir, "patterns", "api-tasks.yaml"),
+		`api:
+  agent: reviewer
+  task: Review APIs
+ui:
+  agent: reviewer
+  task: Review UI flows
+`,
+		"utf8",
+	);
+	await writeFile(
+		join(workflowsDir, "review.yaml"),
+		`review:
+  workflow:
+    uses: ./patterns/api-tasks.yaml
+`,
+		"utf8",
+	);
+
+	const runnerCalls: RunnerInput[] = [];
+	const runner: SubagentRunner = {
+		async run(input) {
+			runnerCalls.push(input);
+			return { name: input.name, agent: input.agent, task: input.task, role: input.role, model: input.model, dependsOn: input.dependsOn, status: "completed", output: `ran ${input.name}`, usage: {} };
+		},
+	};
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	await pi.emit("resources_discover", { type: "resources_discover", cwd, reason: "startup" }, fakeCtx(cwd));
+	await pi.emit("session_start", {}, fakeCtx(cwd));
+
+	await pi.commands.get("review").handler("", fakeCtx(cwd));
+
+	assert.deepEqual(runnerCalls.map((call) => call.name), ["review.api", "review.ui"]);
+	assert.equal(runnerCalls[0].task, "Review APIs");
+	assert.equal(runnerCalls[1].task, "Review UI flows");
+});
+
+test("workflow.uses cannot mix with workflow.tasks or workflow.dagYaml in command YAML", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const workflowsDir = join(cwd, ".pi", "subflow", "workflows");
+	await mkdir(workflowsDir, { recursive: true });
+	await writeFile(
+		join(workflowsDir, "review.yaml"),
+		`review:
+  workflow:
+    uses: ./api-tasks.yaml
+    tasks:
+      api:
+        agent: reviewer
+        task: Review APIs
+`,
+		"utf8",
+	);
+
+	const pi = fakePi();
+	registerPiSubflowExtension(pi);
+	await pi.emit("session_start", {}, fakeCtx(cwd));
+
+	await assert.rejects(() => pi.commands.get("review").handler("", fakeCtx(cwd)), /workflow cannot set uses with dagYaml or tasks/);
+});
+
+test("missing workflow.uses include fails deterministically", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const workflowsDir = join(cwd, ".pi", "subflow", "workflows");
+	await mkdir(workflowsDir, { recursive: true });
+	await writeFile(
+		join(workflowsDir, "review.yaml"),
+		`review:
+  workflow:
+    uses: ./missing.yaml
+`,
+		"utf8",
+	);
+
+	const pi = fakePi();
+	registerPiSubflowExtension(pi);
+	await pi.emit("session_start", {}, fakeCtx(cwd));
+
+	await assert.rejects(() => pi.commands.get("review").handler("", fakeCtx(cwd)), /failed to read workflow\.uses include \.\/missing\.yaml/);
+});
+
+test("workflow.uses include cycles fail deterministically", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const workflowsDir = join(cwd, ".pi", "subflow", "workflows");
+	await mkdir(workflowsDir, { recursive: true });
+	await writeFile(
+		join(workflowsDir, "review.yaml"),
+		`review:
+  workflow:
+    uses: ./cycle.yaml
+`,
+		"utf8",
+	);
+	await writeFile(
+		join(workflowsDir, "cycle.yaml"),
+		`again:
+  workflow:
+    uses: ./review.yaml
+`,
+		"utf8",
+	);
+
+	const pi = fakePi();
+	registerPiSubflowExtension(pi);
+	await pi.emit("session_start", {}, fakeCtx(cwd));
+
+	await assert.rejects(() => pi.commands.get("review").handler("", fakeCtx(cwd)), /workflow\.uses cycle detected/);
 });
 
 test("subflow extension registers repo-local workflow YAML files as slash commands", async () => {

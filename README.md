@@ -65,7 +65,7 @@ flowchart TD
 | Chain | each step needs the previous step's output | `chain: [{ agent, task }]` with optional `{previous}` |
 | Parallel | 2+ tasks are independent | `tasks: [...]` with no `dependsOn` |
 | DAG | tasks have named dependencies, conditional edges, verifier fan-in, or bounded loops | `tasks: [...]` with `dependsOn`, `when`, `loop`, or `dagYaml` |
-| Nested workflows | a task contains an inline child workflow | `workflow: { tasks: [...] }` or `workflow: { dagYaml }` |
+| Nested workflows | a task contains inline child tasks or statically includes a relative workflow file | `workflow: { tasks: [...] }`, `workflow: { dagYaml }`, or `workflow: { uses }` |
 
 Example DAG shorthand:
 

@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, extname, isAbsolute, join } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -8,7 +8,7 @@ import { Flow, Node } from "pocketflow";
 import { discoverAgents, type AgentDefinition, type AgentScope } from "./agents.js";
 import { appendRunHistory } from "./history.js";
 import { validateExecutionPolicy } from "./policy.js";
-import { normalizeDagYaml, normalizeNestedWorkflows } from "./dag-yaml.js";
+import { normalizeDagYaml, normalizeNestedWorkflows, parseDagYaml } from "./dag-yaml.js";
 import { PiSdkRunner } from "./runner.js";
 import { collectOptimizerPolicyTasks, createSubflowOptimizeTool, type SubflowOptimizeToolParams } from "./optimizer/tool.js";
 import { proposeCandidates } from "./optimizer/proposer.js";
@@ -107,7 +107,7 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			"Use subflow DAG mode with role: \"verifier\" for synthesis/validation needing dependency outputs; task names must be unique, and missing deps/self-deps/cycles fail before execution.",
 			"Use subflow_propose_candidates to generate validated static DAG candidate YAML proposals; it does not execute, evaluate, or mutate workflows, and valid dagYaml outputs can be passed to subflow_optimize via candidateDagYamls.",
 			"For LLM-authored DAGs prefer dagYaml: YAML mapping task names to fields; needs aliases dependsOn, but do not set both.",
-			"Nested workflows use workflow.tasks or workflow.dagYaml; workflow.uses is reserved/schema-only for now; children are namespaced under the parent task, parent dependsOn flows into workflow roots, and downstream tasks can depend on the parent workflow name to read its synthetic summary.",
+			"Nested workflows use workflow.tasks or workflow.dagYaml; workflow.uses resolves a static relative include file path to task definitions for nested workflow execution. For workflow-command YAML, workflow.uses paths are resolved relative to the declaring workflow file but must stay inside the discovered workflow root (for example .pi/subflow/workflows/ or ~/.pi/agent/subflow/workflows/), so copy reusable patterns under that root instead of pointing at arbitrary repo files. Include children are namespaced under the parent task, parent dependsOn flows into workflow roots, and downstream tasks can depend on the parent workflow name to read its synthetic summary.",
 			"Bounded loops use loop.maxIterations (capped at 100) with a body mapping or array; iteration bodies are namespaced per pass, inherit parent dependencies on the first pass, and can stop early when until resolves true against current-iteration aliases like ${editor.output.continue}.",
 			"Use when for conditional DAG execution with placeholders like ${task.output.path}; references must point to existing dependency tasks, false conditions skip the task, and invalid expressions fail.",
 			"Workflow commands: safe .pi/subflow/workflows/*.{yaml,yml} and ~/.pi/agent/subflow/workflows/*.{yaml,yml} register at session start as /stem; generated stubs go in matching prompts dirs only if no manual file exists or replacing marked stubs; UI/autocomplete depends on prompt discovery/session registration.",
@@ -207,11 +207,12 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 			pi.registerCommand(commandName, {
 				description: `Run ${workflow.displayPath} as a pi-subflow DAG`,
 				handler: async (args, commandCtx) => {
-					const dagYaml = await readFile(workflow.path, "utf8");
-					const workflowParams = normalizeDagYaml({ dagYaml, agentScope: "both" as const });
-					const { dagYaml: _dagYaml, ...normalizedParams } = workflowParams;
+					const workflowParams = normalizeNestedWorkflows({
+						tasks: await loadWorkflowTasksFromYaml(await readFile(workflow.path, "utf8"), workflow.path, workflow.rootDir),
+						agentScope: "both" as const,
+					});
 					const executableParams = {
-						...addWorkflowCommandArguments(normalizedParams, args, formatRecentConversationContext(commandCtx)),
+						...addWorkflowCommandArguments(workflowParams, args, formatRecentConversationContext(commandCtx)),
 						confirmProjectAgents: false,
 					};
 					validateWorkflowCommandCwds(executableParams.tasks ?? []);
@@ -462,6 +463,7 @@ interface WorkflowCommandFile {
 	commandName: string;
 	entry: string;
 	path: string;
+	rootDir: string;
 	promptDir: string;
 	displayPath: string;
 	description?: string;
@@ -520,6 +522,7 @@ async function discoverWorkflowCommandsInDir({ workflowDir, promptDir, displayPr
 			path: workflowPath,
 			promptDir,
 			displayPath: `${displayPrefix}/${entry}`,
+			rootDir: workflowDir,
 			description: metadata.description,
 			scope,
 		});
@@ -616,6 +619,82 @@ function validateWorkflowCommandCwds(tasks: SubagentTask[]): void {
 			throw new Error(`workflow command task ${task.name ?? task.agent} cwd must stay inside the project`);
 		}
 	}
+}
+
+async function loadWorkflowTasksFromYaml(source: string, workflowPath: string, rootDir: string, includeStack = new Set<string>([workflowPath])): Promise<SubagentTask[]> {
+	return expandWorkflowTasks(parseDagYaml(source), workflowPath, rootDir, includeStack);
+}
+
+async function expandWorkflowTasks(tasks: SubagentTask[] | Record<string, SubagentTask>, workflowPath: string, rootDir: string, includeStack: Set<string>): Promise<SubagentTask[]> {
+	return Promise.all((Array.isArray(tasks) ? tasks : Object.values(tasks)).map((task) => expandWorkflowTask(task, workflowPath, rootDir, includeStack)));
+}
+
+async function expandWorkflowTask(task: SubagentTask, workflowPath: string, rootDir: string, includeStack: Set<string>): Promise<SubagentTask> {
+	const loopBody = task.loop?.body ? await expandLoopBody(task.loop.body, workflowPath, rootDir, includeStack) : undefined;
+	const workflow = task.workflow;
+	if (!workflow) {
+		return loopBody ? { ...task, loop: { ...task.loop, body: loopBody } as NonNullable<SubagentTask["loop"]> } : task;
+	}
+	if (workflow.uses) {
+		const includes = resolveWorkflowUsesPath(workflowPath, workflow.uses);
+		if (!isSubpath(rootDir, includes)) throw new Error(`workflow.uses path must stay inside ${rootDir}`);
+		if (includeStack.has(includes)) throw new Error(`workflow.uses cycle detected for ${includes}`);
+		let includedSource: string;
+		try {
+			includedSource = await readFile(includes, "utf8");
+		} catch (error) {
+			if (isNodeError(error)) throw new Error(`failed to read workflow.uses include ${workflow.uses}: ${error.message}`);
+			throw error;
+		}
+		const nextStack = new Set(includeStack);
+		nextStack.add(includes);
+		const expandedTasks = await loadWorkflowTasksFromYaml(includedSource, includes, rootDir, nextStack);
+		return {
+			...task,
+			workflow: { ...workflow, uses: undefined, tasks: expandedTasks, dagYaml: undefined },
+			loop: task.loop ? { ...task.loop, body: loopBody } as NonNullable<SubagentTask["loop"]> : undefined,
+		};
+	}
+	if (!workflow.tasks) {
+		return loopBody ? { ...task, loop: { ...task.loop, body: loopBody } as NonNullable<SubagentTask["loop"]> } : task;
+	}
+	const expandedTasks = await expandWorkflowTaskCollection(workflow.tasks, workflowPath, rootDir, includeStack);
+	return {
+		...task,
+		workflow: { ...workflow, tasks: expandedTasks },
+		loop: task.loop ? { ...task.loop, body: loopBody } as NonNullable<SubagentTask["loop"]> : undefined,
+	};
+}
+
+async function expandWorkflowTaskCollection(tasks: SubagentTask[] | Record<string, SubagentTask>, workflowPath: string, rootDir: string, includeStack: Set<string>): Promise<SubagentTask[] | Record<string, SubagentTask>> {
+	if (Array.isArray(tasks)) return expandWorkflowTasks(tasks, workflowPath, rootDir, includeStack);
+	if (isRecord(tasks)) {
+		const expandedEntries = await Promise.all(
+			Object.entries(tasks).map(async ([name, task]) => [name, await expandWorkflowTask(task, workflowPath, rootDir, includeStack)] as const),
+		);
+		return Object.fromEntries(expandedEntries);
+	}
+	return tasks;
+}
+
+async function expandLoopBody(body: NonNullable<SubagentTask["loop"]>["body"], workflowPath: string, rootDir: string, includeStack: Set<string>): Promise<NonNullable<SubagentTask["loop"]>["body"]> {
+	if (Array.isArray(body)) return expandWorkflowTasks(body, workflowPath, rootDir, includeStack);
+	if (isRecord(body)) {
+		const expanded = await Promise.all(Object.entries(body).map(async ([name, task]) => [name, await expandWorkflowTask(task, workflowPath, rootDir, includeStack)] as const));
+		return Object.fromEntries(expanded);
+	}
+	return body;
+}
+
+function resolveWorkflowUsesPath(workflowPath: string, uses: string): string {
+	if (!uses || typeof uses !== "string") throw new Error(`workflow.uses must be a path`);
+	if (isAbsolute(uses)) throw new Error("workflow.uses must be relative to the workflow file");
+	return resolve(dirname(workflowPath), uses);
+}
+
+function isSubpath(parent: string, child: string): boolean {
+	const relation = relative(parent, child);
+	return relation === "" || relation === "." || (!isAbsolute(relation) && !relation.startsWith(".."));
 }
 
 function addWorkflowCommandArguments(params: SubflowToolParams, args: string, recentContext?: string): SubflowToolParams {

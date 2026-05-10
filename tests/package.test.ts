@@ -104,13 +104,27 @@ test("workflow template examples are shipped and indexed", async () => {
 		assert.match(template, /role: verifier/);
 		assert.match(template, /needs: \[/);
 		assert.match(template, /model: openai-codex\/gpt-5\.4-mini/);
-		assert.match(template, /model: openai-codex\/gpt-5\.5/);
+		if (name !== "docs-consistency") {
+			assert.match(template, /model: openai-codex\/gpt-5\.5/);
+		}
 		for (const sectionList of template.matchAll(/expectedSections: \[([^\]]+)\]/g)) {
 			for (const rawSection of sectionList[1].split(",")) {
 				const section = rawSection.trim();
 				assert.match(template, new RegExp(`## ${section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 			}
 		}
+	}
+});
+
+test("docs-consistency workflow matches eval contract and required doc surfaces", async () => {
+	const template = await readFile("examples/workflows/recipes/docs-consistency.yaml", "utf8");
+	const evalSet = await readFile("examples/evals/docs-consistency.yaml", "utf8");
+
+	assert.match(template, /expectedSections: \[Summary, Findings, Recommendation\]/);
+	assert.match(template, /consistency-verdict:\n  agent: reviewer\n  model: openai-codex\/gpt-5\.4-mini/);
+	assert.match(evalSet, /expectedSections: \[Summary, Findings, Recommendation\]/);
+	for (const surface of ["README.md", "doc/wiki", "doc/adr", "schemas", "src/extension.ts"] as const) {
+		assert.match(template, new RegExp(surface.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 	}
 });
 
