@@ -79,7 +79,7 @@ class VerifierRepairNode extends DagNode {
 	async post(shared: DagShared, _prep: unknown, _exec: unknown): Promise<string | undefined> {
 		this.mark(shared);
 		if (!shared.tasks) throw new Error("DAG validation did not produce tasks");
-		await runVerifierRepairs(shared.tasks, shared.byName, shared.results, shared.trace, shared.options);
+		if (!hasBudgetFailure(shared.results)) await runVerifierRepairs(shared.tasks, shared.byName, shared.results, shared.trace, shared.options);
 		return "aggregate-dag-result";
 	}
 }
@@ -99,6 +99,10 @@ class AggregateDagResultNode extends DagNode {
 		};
 		return undefined;
 	}
+}
+
+function hasBudgetFailure(results: SubagentResult[]): boolean {
+	return results.some((result) => result.agent === "budget" && result.status === "failed");
 }
 
 export async function runPocketFlowDag(input: { tasks: SubagentTask[] }, options: ExecutionOptions): Promise<FlowResult> {

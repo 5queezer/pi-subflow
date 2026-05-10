@@ -61,3 +61,30 @@ test("runDag does not run verifier repair after budget is exceeded", async () =>
 	assert.equal(result.status, "failed");
 	assert.equal(calls.includes("repair-verify-1"), false);
 });
+
+test("runDag does not repair an earlier failed verifier after a later stage exceeds budget", async () => {
+	const calls: string[] = [];
+	const runner = new MockSubagentRunner({
+		mock: async ({ name }) => {
+			calls.push(name);
+			if (name === "verify") throw new Error("verification failed");
+			if (name === "spender") return { output: "spent", usage: { cost: 2 } };
+			return { output: "ok", usage: { cost: 0 } };
+		},
+	});
+
+	const result = await runDag(
+		{
+			tasks: [
+				{ name: "setup", agent: "mock", task: "setup" },
+				{ name: "verify", agent: "mock", role: "verifier", task: "verify", dependsOn: ["setup"] },
+				{ name: "spender", agent: "mock", task: "spend", dependsOn: ["setup"] },
+			],
+		},
+		{ runner, maxCost: 1, maxVerificationRounds: 1 },
+	);
+
+	assert.equal(result.status, "failed");
+	assert.equal(calls.includes("spender"), true);
+	assert.equal(calls.includes("repair-verify-1"), false);
+});
