@@ -10,6 +10,7 @@ Use it when work benefits from independent research/review streams, staged hando
 
 - Single, chain, parallel, DAG, conditional-edge, bounded-loop, and nested-workflow subagent execution
 - DAG preflight validation with precise diagnostics
+- PocketFlow node-backed internal DAG execution for validation, max-turns guards, stage execution, verifier repair, and result aggregation
 - `dagYaml` shorthand for concise LLM-authored task graphs
 - Inline nested workflows with parent/child namespacing and synthetic summaries
 - Verifier fan-in with dependency-output injection
@@ -84,7 +85,7 @@ final-verdict:
   task: Synthesize the findings into a prioritized verdict
 ```
 
-Verifier tasks receive dependency outputs automatically. A verifier with no explicit `dependsOn` depends on all non-verifier tasks. `dagYaml` is parsed as YAML, so arrays can be written inline (`needs: [api-review, test-review]`) or as block sequences. Conditional edges use `when` expressions against dependency outputs. Nested workflows namespace child task names under the parent, flow the parent `dependsOn` into workflow roots, and expose a synthetic parent summary for downstream dependents. Bounded loops repeat a namespaced body up to `loop.maxIterations`, can stop early with `loop.until`, and expose a synthetic loop summary for downstream dependents.
+Verifier tasks receive dependency outputs automatically. A verifier with no explicit `dependsOn` depends on all non-verifier tasks. `dagYaml` is parsed as YAML, so arrays can be written inline (`needs: [api-review, test-review]`) or as block sequences. Conditional edges use `when` expressions against dependency outputs. Nested workflows namespace child task names under the parent, flow the parent `dependsOn` into workflow roots, and expose a synthetic parent summary for downstream dependents. Bounded loops repeat a namespaced body up to `loop.maxIterations`, can stop early with `loop.until`, and expose a synthetic loop summary for downstream dependents. DAG execution is node-backed internally even though the public API stays `runDag`; chain and parallel remain custom orchestration.
 
 ## Workflow templates
 

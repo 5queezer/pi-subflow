@@ -1,27 +1,30 @@
-import { Flow } from "pocketflow";
 import { aggregateStatus, enforceBudget, mapLimit, namedTask, runTask } from "../execution.js";
-import { expandDagTaskList, validateDagTasks } from "./dag-validation.js";
+import { expandDagTaskList } from "./dag-validation.js";
 import { evaluateWhenExpression, type WhenPlaceholderReference, WhenExpressionError } from "./dag-when.js";
 import type { ExecutionOptions, FlowResult, SubagentResult, SubagentTask, TraceEvent } from "../types.js";
 import type { NormalizedDagTask } from "./dag-validation.js";
+import { runPocketFlowDag } from "./pocketflow-dag.js";
 
 export async function runDag(input: { tasks: SubagentTask[] }, options: ExecutionOptions): Promise<FlowResult> {
-	void Flow;
-	const trace: TraceEvent[] = [];
-	const validation = validateDagTasks(input.tasks);
-	if (validation.issues.length > 0) throw new Error(validation.issues[0].message);
-	const tasks = validation.tasks;
-	const hasLoop = tasks.some((task) => Boolean(task.loop));
-	if (!hasLoop && options.maxTurns !== undefined) {
-		const runnableTaskCount = tasks.filter((task) => task.synthetic !== "workflow_summary").length;
-		if (options.maxTurns < runnableTaskCount) {
-			throw new Error(`maxTurns ${options.maxTurns} is too low for ${runnableTaskCount} DAG tasks; increase maxTurns or remove the limit`);
-		}
-	}
-	const byName = new Map<string, SubagentResult>();
+	return runPocketFlowDag(input, options);
+}
+
+export async function runDagImperative(input: { tasks: NormalizedDagTask[] }, options: ExecutionOptions & { trace?: TraceEvent[] }): Promise<FlowResult> {
+	const trace = options.trace ?? [];
 	const results: SubagentResult[] = [];
-	await executeDagGraph(tasks, options, trace, results, byName, new Set());
+	const byName = new Map<string, SubagentResult>();
+	await executeDagGraph(input.tasks, options, trace, results, byName, new Set());
 	return { status: dagStatus(results), output: results.at(-1)?.output ?? "", results, trace };
+}
+
+export async function executeDagStages(
+	tasks: NormalizedDagTask[],
+	options: ExecutionOptions,
+	trace: TraceEvent[],
+	results: SubagentResult[],
+	byName: Map<string, SubagentResult>,
+): Promise<void> {
+	await executeDagGraph(tasks, options, trace, results, byName, new Set(), { runVerifierRepairs: false });
 }
 
 async function executeDagGraph(
@@ -31,6 +34,7 @@ async function executeDagGraph(
 	results: SubagentResult[],
 	byName: Map<string, SubagentResult>,
 	precompleted: Set<string>,
+	config: { runVerifierRepairs?: boolean } = { runVerifierRepairs: true },
 ): Promise<void> {
 	const remaining = new Map(tasks.map((task) => [task.name, task]));
 	const completed = new Set(precompleted);
@@ -83,7 +87,7 @@ async function executeDagGraph(
 		stageIndex += 1;
 	}
 
-	await runVerifierRepairs(tasks, byName, results, trace, options);
+	if (config.runVerifierRepairs !== false) await runVerifierRepairs(tasks, byName, results, trace, options);
 }
 
 async function executeDagTask(
@@ -159,7 +163,7 @@ async function runLoopTask(
 	return synthesizeLoopTaskResult(task, iterationsCompleted, task.loop.maxIterations, stoppedEarly, "completed");
 }
 
-async function runVerifierRepairs(
+export async function runVerifierRepairs(
 	tasks: NormalizedDagTask[],
 	byName: Map<string, SubagentResult>,
 	results: SubagentResult[],
@@ -196,7 +200,7 @@ async function runVerifierRepairs(
 	}
 }
 
-function dagStatus(results: SubagentResult[]): "completed" | "failed" {
+export function dagStatus(results: SubagentResult[]): "completed" | "failed" {
 	const latestByName = new Map<string, SubagentResult>();
 	for (const result of results) {
 		if (result.name?.startsWith("repair-")) continue;
