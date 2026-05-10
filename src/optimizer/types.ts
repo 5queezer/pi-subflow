@@ -105,6 +105,36 @@ export interface OptimizerReport {
 	warnings: string[];
 }
 
+export type CandidateProposalStrategy = "safe" | "exploratory";
+
+export type CandidateProposerInput = {
+	workflowPath?: string;
+	dagYaml?: string;
+	evalSet?: {
+		path?: string;
+		inline?: unknown;
+	};
+	count?: number;
+	strategy?: CandidateProposalStrategy;
+};
+
+export type CandidateProposal = {
+	id: string;
+	title: string;
+	explanation: string;
+	dagYaml: string;
+	valid: boolean;
+	errors: string[];
+};
+
+export type CandidateProposerResult = {
+	status: "completed" | "failed";
+	strategy: CandidateProposalStrategy;
+	requestedCount: number;
+	proposals: CandidateProposal[];
+	summary: string;
+};
+
 export interface WorkflowCandidate {
 	id: string;
 	label: string;
