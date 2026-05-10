@@ -105,7 +105,7 @@ export interface OptimizerReport {
 	warnings: string[];
 }
 
-export type CandidateProposalStrategy = "safe" | "exploratory";
+export type CandidateProposalStrategy = "safe" | "exploratory" | "model-thinking";
 
 export type CandidateProposerInput = {
 	workflowPath?: string;

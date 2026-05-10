@@ -135,7 +135,7 @@ npm run build && npm test
 
 ## Optimizer
 
-`subflow_propose_candidates` generates validated static DAG candidate YAMLs without executing or mutating workflows. In v1, `safe` and `exploratory` share the same fan-in-only transform; `strategy` is reserved for future proposal transforms. `subflow_optimize` is dry-run-only and writes JSON reports without mutating workflow files:
+`subflow_propose_candidates` generates validated static DAG candidate YAMLs without executing or mutating workflows. `safe` and `exploratory` currently share the verifier fan-in transform; `model-thinking` proposes deterministic verifier-only model/thinking variants for later optimizer evaluation. `subflow_optimize` is dry-run-only and writes JSON reports without mutating workflow files:
 
 ```text
 subflow_optimize({
@@ -153,6 +153,7 @@ subflow_optimize({
 ```
 
 - Use `subflow_propose_candidates` to generate candidate YAMLs, then pass selected valid outputs to `subflow_optimize` as `candidateDagYamls`.
+- Use `strategy: "model-thinking"` to generate verifier-only model/thinking variants from the built-in Mini/Strong search space; Bayesian search, all-task mutation, and custom search spaces are future work.
 - Canonical eval sets should be stored at `.pi/subflow/evals/*.yaml` and loaded via `evalSet.path`.
 - For quick experiments, use `evalSet.inline` (not recommended for reusable cases).
 - `maxCandidateRuns` limits candidate runs per case.

@@ -4,7 +4,8 @@ import YAML from "yaml";
 import { normalizeDagYaml, normalizeNestedWorkflows } from "../dag-yaml.js";
 import { validateDagTasks } from "../flows/dag-validation.js";
 import type { SubagentTask } from "../types.js";
-import type { CandidateProposal, CandidateProposerInput, CandidateProposerResult } from "./types.js";
+import { baselineModelThinking, modelThinkingVariants } from "./model-thinking.js";
+import type { CandidateProposal, CandidateProposalStrategy, CandidateProposerInput, CandidateProposerResult } from "./types.js";
 
 export async function proposeCandidates(input: CandidateProposerInput, options: { cwd?: string } = {}): Promise<CandidateProposerResult> {
 	if (Boolean(input.workflowPath) === Boolean(input.dagYaml)) {
@@ -18,14 +19,15 @@ export async function proposeCandidates(input: CandidateProposerInput, options: 
 	const requestedCount = Math.min(count, 5);
 
 	const strategy = input.strategy ?? "safe";
-	if (strategy !== "safe" && strategy !== "exploratory") {
-		throw new Error("strategy must be safe or exploratory");
+	if (strategy !== "safe" && strategy !== "exploratory" && strategy !== "model-thinking") {
+		throw new Error("strategy must be safe, exploratory, or model-thinking");
 	}
 
 	const sourceDagYaml = input.dagYaml ?? await readWorkflowSource(input.workflowPath ?? "", options.cwd);
 	const tasks = loadDagTasks(sourceDagYaml);
-	const proposal = buildVerifierFanInCandidate(tasks);
-	const proposals = proposal ? [proposal] : [];
+	const proposals = strategy === "model-thinking"
+		? buildModelThinkingCandidates(tasks, requestedCount)
+		: compactProposal(buildVerifierFanInCandidate(tasks));
 	const validCount = proposals.filter((candidate) => candidate.valid).length;
 
 	return {
@@ -33,7 +35,7 @@ export async function proposeCandidates(input: CandidateProposerInput, options: 
 		strategy,
 		requestedCount,
 		proposals,
-		summary: validCount > 0 ? "Generated 1 valid verifier fan-in candidate." : "No verifier fan-in candidate generated.",
+		summary: summarizeProposals(strategy, proposals, validCount),
 	};
 }
 
@@ -78,6 +80,62 @@ function buildVerifierFanInCandidate(tasks: SubagentTask[]): CandidateProposal |
 		valid: true,
 		errors: [],
 	};
+}
+
+function buildModelThinkingCandidates(tasks: SubagentTask[], count: number): CandidateProposal[] {
+	const target = deepestVerifierTask(tasks);
+	if (!target?.name) return [];
+	const baseline = baselineModelThinking(target);
+	return modelThinkingVariants(target, count).map((variant, index) => {
+		const candidateTasks = tasks.map((task) => task.name === target.name ? { ...task, model: variant.model, thinking: variant.thinking } : task);
+		const dagYaml = renderDagYaml(candidateTasks);
+		const validation = validateRenderedDagYaml(dagYaml);
+		return {
+			id: `model-thinking-${index + 1}`,
+			title: `Model/thinking candidate for ${target.name}`,
+			explanation: `${target.name}: ${baseline.model}/${baseline.thinking} -> ${variant.model}/${variant.thinking} (${variant.description}).`,
+			dagYaml,
+			valid: validation.valid,
+			errors: validation.errors,
+		};
+	});
+}
+
+function deepestVerifierTask(tasks: SubagentTask[]): SubagentTask | undefined {
+	const byName = new Map(tasks.flatMap((task) => typeof task.name === "string" ? [[task.name, task] as const] : []));
+	let best: { task: SubagentTask; depth: number } | undefined;
+	for (const task of tasks) {
+		if (task.role !== "verifier" || typeof task.name !== "string") continue;
+		const depth = dependencyDepth(task, byName, new Set());
+		if (!best || depth > best.depth) best = { task, depth };
+	}
+	return best?.task;
+}
+
+function dependencyDepth(task: SubagentTask, byName: Map<string, SubagentTask>, visiting: Set<string>): number {
+	const name = task.name;
+	if (typeof name !== "string" || visiting.has(name)) return 0;
+	const dependencies = task.dependsOn ?? [];
+	if (dependencies.length === 0) return 0;
+	visiting.add(name);
+	const depth = 1 + Math.max(...dependencies.map((dependency) => {
+		const dependencyTask = byName.get(dependency);
+		return dependencyTask ? dependencyDepth(dependencyTask, byName, visiting) : 0;
+	}));
+	visiting.delete(name);
+	return depth;
+}
+
+function compactProposal(proposal: CandidateProposal | undefined): CandidateProposal[] {
+	return proposal ? [proposal] : [];
+}
+
+function summarizeProposals(strategy: CandidateProposalStrategy, proposals: CandidateProposal[], validCount: number): string {
+	if (strategy === "model-thinking") {
+		if (proposals.length === 0) return "No verifier task found for model-thinking proposals.";
+		return `Generated ${validCount} valid model-thinking candidate${validCount === 1 ? "" : "s"}.`;
+	}
+	return validCount > 0 ? "Generated 1 valid verifier fan-in candidate." : "No verifier fan-in candidate generated.";
 }
 
 function hasExistingVerifierFanIn(tasks: SubagentTask[], rootNames: string[]): boolean {

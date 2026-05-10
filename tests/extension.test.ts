@@ -55,7 +55,7 @@ test("subflow extension registers subflow_propose_candidates with LLM-facing gui
 	assert.match(tool.promptSnippet ?? "", /does not execute, evaluate, or mutate workflows/i);
 	assert(tool.promptGuidelines.some((line: string) => /does not execute candidates/i.test(line)));
 	assert(tool.promptGuidelines.some((line: string) => /subflow_optimize/i.test(line) && /candidateDagYamls/i.test(line)));
-	assert(tool.promptGuidelines.some((line: string) => /strategy is reserved/i.test(line)));
+	assert(tool.promptGuidelines.some((line: string) => /model-thinking proposes deterministic verifier-only model\/thinking variants/i.test(line)));
 
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	await writeFile(join(cwd, "relative.yaml"), `research:\n  agent: researcher\n  task: Research the topic.\n\nrepo:\n  agent: researcher\n  task: Inspect repository evidence.\n`);

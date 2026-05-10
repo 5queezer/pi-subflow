@@ -160,7 +160,7 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 		promptGuidelines: [
 			"Use subflow_propose_candidates when you need candidate DAG YAML proposals for later evaluation, not when you want to run workflows.",
 			"This tool generates validated static DAG candidate YAMLs only; it does not execute candidates, evaluate them, or mutate workflow files.",
-			"safe and exploratory currently share the same fan-in-only proposal transform; strategy is reserved for future proposal transforms.",
+			"safe and exploratory currently share the verifier fan-in proposal transform; model-thinking proposes deterministic verifier-only model/thinking variants for later optimizer evaluation.",
 			"Pass the valid dagYaml strings it returns to subflow_optimize via candidateDagYamls for dry-run comparison.",
 			"subflow_optimize remains the evaluator; file replacement is out of scope here and belongs in a separate apply step.",
 		],
@@ -173,7 +173,7 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 				inline: Type.Optional(Type.Any()),
 			})),
 			count: Type.Optional(Type.Integer({ minimum: 1 })),
-			strategy: Type.Optional(Type.Union([Type.Literal("safe"), Type.Literal("exploratory")])),
+			strategy: Type.Optional(Type.Union([Type.Literal("safe"), Type.Literal("exploratory"), Type.Literal("model-thinking")])),
 		}),
 		renderCall() {
 			return new Text("", 0, 0);

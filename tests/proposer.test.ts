@@ -3,6 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import YAML from "yaml";
 import { evaluateOptimizerRun } from "../src/optimizer/evaluator.js";
 import { MockSubagentRunner } from "../src/index.js";
 import { proposeCandidates } from "../src/optimizer/proposer.ts";
@@ -57,8 +58,88 @@ test("proposeCandidates validates count and strategy", async () => {
 
 	await assert.rejects(
 		proposeCandidates({ dagYaml: "a:\n  task: a\n", strategy: "wild" as never }),
-		/strategy must be safe or exploratory/i,
+		/strategy must be safe, exploratory, or model-thinking/i,
 	);
+});
+
+test("proposeCandidates model-thinking mutates only the deepest verifier", async () => {
+	const result = await proposeCandidates({
+		dagYaml: `worker:
+  agent: reviewer
+  model: openai-codex/gpt-5.4-mini
+  thinking: low
+  task: Inspect docs.
+
+verdict:
+  agent: reviewer
+  model: openai-codex/gpt-5.5
+  thinking: medium
+  role: verifier
+  needs: [worker]
+  task: Synthesize findings.
+`,
+		strategy: "model-thinking",
+		count: 3,
+	});
+
+	assert.equal(result.status, "completed");
+	assert.equal(result.strategy, "model-thinking");
+	assert.equal(result.proposals.length, 3);
+	assert.equal(result.proposals.every((proposal) => proposal.valid), true);
+	assert.match(result.proposals[0]?.id ?? "", /^model-thinking-/);
+	assert.match(result.proposals[0]?.explanation ?? "", /verdict: openai-codex\/gpt-5\.5\/medium -> /);
+
+	for (const proposal of result.proposals) {
+		const parsed = YAML.parse(proposal.dagYaml) as Record<string, Record<string, unknown>>;
+		assert.deepEqual(parsed.worker, {
+			agent: "reviewer",
+			task: "Inspect docs.",
+			model: "openai-codex/gpt-5.4-mini",
+			thinking: "low",
+		});
+	}
+
+	const firstCandidate = YAML.parse(result.proposals[0]?.dagYaml ?? "") as Record<string, Record<string, unknown>>;
+	assert.equal(firstCandidate.verdict?.model, "openai-codex/gpt-5.4-mini");
+	assert.equal(firstCandidate.verdict?.thinking, "medium");
+});
+
+test("proposeCandidates model-thinking returns a clear empty result without a verifier", async () => {
+	const result = await proposeCandidates({
+		dagYaml: `worker:
+  agent: reviewer
+  model: openai-codex/gpt-5.4-mini
+  thinking: low
+  task: Inspect docs.
+`,
+		strategy: "model-thinking",
+	});
+
+	assert.equal(result.status, "completed");
+	assert.equal(result.proposals.length, 0);
+	assert.match(result.summary, /no verifier task found/i);
+});
+
+test("proposeCandidates model-thinking respects the count cap", async () => {
+	const result = await proposeCandidates({
+		dagYaml: `worker:
+  agent: reviewer
+  task: Inspect docs.
+
+verdict:
+  agent: reviewer
+  model: openai-codex/gpt-5.5
+  thinking: medium
+  role: verifier
+  needs: [worker]
+  task: Synthesize findings.
+`,
+		strategy: "model-thinking",
+		count: 1,
+	});
+
+	assert.equal(result.requestedCount, 1);
+	assert.equal(result.proposals.length, 1);
 });
 
 test("proposeCandidates rejects malformed baseline DAG YAML", async () => {
