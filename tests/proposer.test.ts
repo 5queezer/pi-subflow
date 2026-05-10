@@ -11,3 +11,19 @@ test("proposeCandidates rejects ambiguous workflowPath and dagYaml inputs", asyn
 		/exactly one of workflowPath or dagYaml/i,
 	);
 });
+
+test("proposeCandidates returns a valid verifier fan-in candidate for a multi-root DAG", async () => {
+	const result = await proposeCandidates({
+		dagYaml: `research:\n  agent: researcher\n  task: Research the topic.\n\nrepo:\n  agent: researcher\n  task: Inspect repository evidence.\n`,
+		count: 1,
+	});
+
+	assert.equal(result.status, "completed");
+	assert.equal(result.proposals.length, 1);
+	const [proposal] = result.proposals;
+	assert.equal(proposal.valid, true);
+	assert.match(proposal.title, /verifier fan-in/i);
+	assert.match(proposal.dagYaml, /synthesis:/);
+	assert.match(proposal.dagYaml, /dependsOn:\n\s+- research\n\s+- repo/);
+	assert.match(proposal.dagYaml, /role: verifier/);
+});
