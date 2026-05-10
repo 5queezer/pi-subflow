@@ -99,6 +99,7 @@ Recipes (concrete jobs):
 
 - [`code-review.yaml`](examples/workflows/recipes/code-review.yaml)
 - [`implementation-planning.yaml`](examples/workflows/recipes/implementation-planning.yaml)
+- [`red-green-implementation.yaml`](examples/workflows/recipes/red-green-implementation.yaml)
 - [`research-synthesis.yaml`](examples/workflows/recipes/research-synthesis.yaml)
 - [`docs-consistency.yaml`](examples/workflows/recipes/docs-consistency.yaml)
 - [`bug-investigation.yaml`](examples/workflows/recipes/bug-investigation.yaml)

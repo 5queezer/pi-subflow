@@ -464,6 +464,7 @@ interface WorkflowCommandFile {
 	path: string;
 	promptDir: string;
 	displayPath: string;
+	description?: string;
 	scope: "project" | "user";
 }
 
@@ -505,12 +506,25 @@ async function discoverWorkflowCommandsInDir({ workflowDir, promptDir, displayPr
 		if (isNodeError(error) && error.code === "ENOENT") return [];
 		throw error;
 	}
-	return entries.sort().flatMap((entry) => {
+	const discovered: WorkflowCommandFile[] = [];
+	for (const entry of entries.sort()) {
 		const extension = extname(entry);
-		if (extension !== ".yaml" && extension !== ".yml") return [];
+		if (extension !== ".yaml" && extension !== ".yml") continue;
 		const commandName = basename(entry, extension);
-		return isSafeWorkflowCommandName(commandName) ? [{ commandName, entry, path: join(workflowDir, entry), promptDir, displayPath: `${displayPrefix}/${entry}`, scope }] : [];
-	});
+		if (!isSafeWorkflowCommandName(commandName)) continue;
+		const workflowPath = join(workflowDir, entry);
+		const metadata = await discoverWorkflowCommentMetadata(workflowPath);
+		discovered.push({
+			commandName,
+			entry,
+			path: workflowPath,
+			promptDir,
+			displayPath: `${displayPrefix}/${entry}`,
+			description: metadata.description,
+			scope,
+		});
+	}
+	return discovered;
 }
 
 async function writeWorkflowPromptStubs(workflows: WorkflowCommandFile[], knownPromptDirs: string[]): Promise<string[]> {
@@ -558,8 +572,27 @@ async function isGeneratedWorkflowPromptStub(path: string): Promise<boolean> {
 	}
 }
 
-function workflowPromptStubContent({ commandName, displayPath }: WorkflowCommandFile): string {
-	return [GENERATED_PROMPT_STUB_MARKER, `---`, `description: Run ${displayPath} as a pi-subflow DAG`, `argument-hint: [workflow arguments]`, `---`, `/${commandName} $ARGUMENTS`, ""].join("\n");
+function workflowPromptStubContent({ commandName, displayPath, description }: WorkflowCommandFile): string {
+	const resolvedDescription = description && description.trim().length > 0 ? description : `Run ${displayPath} as a pi-subflow DAG`;
+	return [GENERATED_PROMPT_STUB_MARKER, `---`, `description: ${resolvedDescription}`, `argument-hint: [workflow arguments]`, `---`, `/${commandName} $ARGUMENTS`, ""].join("\n");
+}
+
+async function discoverWorkflowCommentMetadata(path: string): Promise<{ description?: string }> {
+	try {
+		const source = await readFile(path, "utf8");
+		for (const line of source.split(/\r?\n/)) {
+			const trimmed = line.trim();
+			if (trimmed.length === 0) continue;
+			if (!trimmed.startsWith("#")) break;
+			const metadataMatch = /^#\s*([a-zA-Z0-9_-]+)\s*:\s*(.*)$/u.exec(trimmed);
+			if (!metadataMatch) continue;
+			if (metadataMatch[1]?.toLowerCase() === "description") return { description: metadataMatch[2]?.trim() ?? "" };
+		}
+		return {};
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") return {};
+		return {};
+	}
 }
 
 function formatWorkflowChatResult(commandName: string, result: Awaited<ReturnType<typeof executeSubflow>>): string {

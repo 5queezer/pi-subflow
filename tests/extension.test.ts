@@ -638,6 +638,30 @@ test("subflow extension DAG rendering uses structured dependency metadata instea
 	assert.doesNotMatch(result.content[0].text, /fake \[/);
 });
 
+
+test("workflow discovery parses comment metadata for workflow command stubs", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const workflowsDir = join(cwd, ".pi", "subflow", "workflows");
+	await mkdir(workflowsDir, { recursive: true });
+	await writeFile(
+		join(workflowsDir, "review.yaml"),
+		`# description: Run a consistency-focused docs workflow.
+# tags: [docs, adr]
+readme-review:
+  agent: reviewer
+  task: Review README for consistency
+`,
+		"utf8",
+	);
+
+	const pi = fakePi();
+	registerPiSubflowExtension(pi);
+	await pi.emit("resources_discover", { type: "resources_discover", cwd, reason: "startup" }, fakeCtx(cwd));
+
+	const stub = await readFile(join(cwd, ".pi", "subflow", "prompts", "review.md"), "utf8");
+	assert.match(stub, /description: Run a consistency-focused docs workflow\./);
+});
+
 test("subflow extension keeps the visible Pi tool call card empty because statusline shows progress", () => {
 	const pi = fakePi();
 	registerPiSubflowExtension(pi);

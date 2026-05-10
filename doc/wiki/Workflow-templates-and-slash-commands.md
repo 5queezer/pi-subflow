@@ -42,6 +42,7 @@ Recipes (concrete jobs):
 | --- | --- | --- |
 | Code review fan-in | independent API, tests, and docs reviewers should feed one verdict | `examples/workflows/recipes/code-review.yaml` |
 | Implementation planning | requirements, architecture, and risk scouts should feed one implementation plan | `examples/workflows/recipes/implementation-planning.yaml` |
+| Red-green implementation | a small implementation slice should follow tests-first red-green-refactor discipline | `examples/workflows/recipes/red-green-implementation.yaml` |
 | Research synthesis | web, repository, and docs research should be reconciled into one answer | `examples/workflows/recipes/research-synthesis.yaml` |
 | Docs consistency | README, ADR, and LLM-facing guidance should be checked together | `examples/workflows/recipes/docs-consistency.yaml` |
 | Bug investigation | repro, code-path, and test-gap scouts should feed one root-cause analysis | `examples/workflows/recipes/bug-investigation.yaml` |
