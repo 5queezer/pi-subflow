@@ -707,6 +707,23 @@ final-verdict:
 	assert.match(history, /"mode":"dag"/);
 });
 
+test("workflow slash command runs without UI and skips project-agent confirmation", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const workflowsDir = join(cwd, ".pi", "subflow", "workflows");
+	await mkdir(workflowsDir, { recursive: true });
+	await writeFile(join(workflowsDir, "code-review.yaml"), "review:\n  agent: reviewer\n  task: Review code\n", "utf8");
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+	await pi.emit("session_start", {}, fakeCtx(cwd));
+	const ctx = fakeCtx(cwd);
+	ctx.hasUI = false;
+	await pi.commands.get("code-review").handler("noop", ctx);
+	assert.equal(runner.calls.length, 1);
+	assert.deepEqual(ctx.confirmations, []);
+	assert.deepEqual(ctx.notifications, ["Workflow /code-review completed"]);
+});
+
 test("user subflow workflows are discovered from the pi agent subflow directory", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const userSubflowDir = await mkdtemp(join(tmpdir(), "pi-subflow-user-"));

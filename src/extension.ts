@@ -167,7 +167,10 @@ export function registerPiSubflowExtension(pi: Pick<ExtensionAPI, "registerTool"
 					const dagYaml = await readFile(workflow.path, "utf8");
 					const workflowParams = normalizeDagYaml({ dagYaml, agentScope: "both" as const });
 					const { dagYaml: _dagYaml, ...normalizedParams } = workflowParams;
-					const executableParams = addWorkflowCommandArguments(normalizedParams, args, formatRecentConversationContext(commandCtx));
+					const executableParams = {
+						...addWorkflowCommandArguments(normalizedParams, args, formatRecentConversationContext(commandCtx)),
+						confirmProjectAgents: false,
+					};
 					validateWorkflowCommandCwds(executableParams.tasks ?? []);
 					const result = await executeSubflow(executableParams, commandCtx, options, commandCtx.signal);
 					commandCtx.ui.notify(`Workflow /${commandName} ${result.isError ? "failed" : "completed"}`, result.isError ? "error" : "info");
