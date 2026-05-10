@@ -22,7 +22,7 @@ export async function proposeCandidates(input: CandidateProposerInput): Promise<
 		throw new Error("strategy must be safe or exploratory");
 	}
 
-	const sourceDagYaml = input.dagYaml ?? (await readFile(resolve(input.workflowPath ?? ""), "utf8"));
+	const sourceDagYaml = input.dagYaml ?? await readWorkflowSource(input.workflowPath ?? "");
 	const tasks = loadDagTasks(sourceDagYaml);
 	const proposal = buildVerifierFanInCandidate(tasks);
 	const proposals = proposal ? [proposal] : [];
@@ -49,9 +49,10 @@ function buildVerifierFanInCandidate(tasks: SubagentTask[]): CandidateProposal |
 	if (hasExistingVerifierFanIn(tasks, rootNames)) return undefined;
 
 	const synthesisName = uniqueTaskName(tasks, "synthesis");
+	const synthesisAgent = workerRoots.find((task) => typeof task.agent === "string" && task.agent.length > 0)?.agent;
 	const candidateTasks = [...tasks, {
 		name: synthesisName,
-		agent: "verifier",
+		...(synthesisAgent ? { agent: synthesisAgent } : {}),
 		task: "Synthesize the research and repository evidence into a concise recommendation.",
 		dependsOn: [...rootNames],
 		role: "verifier" as const,
@@ -84,9 +85,19 @@ function hasExistingVerifierFanIn(tasks: SubagentTask[], rootNames: string[]): b
 	return tasks.some((task) => {
 		if (task.role !== "verifier") return false;
 		const dependsOn = task.dependsOn ?? [];
-		if (dependsOn.length === 0) return true;
+		if (dependsOn.length === 0) return false;
 		return rootNames.every((name) => dependsOn.includes(name)) && dependsOn.every((name) => rootSet.has(name));
 	});
+}
+
+async function readWorkflowSource(workflowPath: string): Promise<string> {
+	const resolvedPath = resolve(workflowPath);
+	try {
+		return await readFile(resolvedPath, "utf8");
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(`could not read workflowPath ${resolvedPath}: ${message}`);
+	}
 }
 
 function uniqueTaskName(tasks: SubagentTask[], baseName: string): string {

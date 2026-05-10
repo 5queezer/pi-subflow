@@ -135,7 +135,7 @@ npm run build && npm test
 
 ## Optimizer
 
-`subflow_propose_candidates` generates validated static DAG candidate YAMLs without executing or mutating workflows. `subflow_optimize` is dry-run-only and writes JSON reports without mutating workflow files:
+`subflow_propose_candidates` generates validated static DAG candidate YAMLs without executing or mutating workflows. In v1, `safe` and `exploratory` share the same fan-in-only transform; `strategy` is reserved for future proposal transforms. `subflow_optimize` is dry-run-only and writes JSON reports without mutating workflow files:
 
 ```text
 subflow_optimize({

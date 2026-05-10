@@ -55,6 +55,7 @@ test("subflow extension registers subflow_propose_candidates with LLM-facing gui
 	assert.match(tool.promptSnippet ?? "", /does not execute, evaluate, or mutate workflows/i);
 	assert(tool.promptGuidelines.some((line: string) => /does not execute candidates/i.test(line)));
 	assert(tool.promptGuidelines.some((line: string) => /subflow_optimize/i.test(line) && /candidateDagYamls/i.test(line)));
+	assert(tool.promptGuidelines.some((line: string) => /strategy is reserved/i.test(line)));
 
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
 	const result = await tool.execute("call-1", {
@@ -64,6 +65,8 @@ test("subflow extension registers subflow_propose_candidates with LLM-facing gui
 	assert.match(result.content[0].text, /subflow_propose_candidates · completed/);
 	assert.match(result.content[0].text, /```yaml/);
 	assert.match(result.content[0].text, /synthesis:/);
+	assert.match(result.content[0].text, /agent: researcher/);
+	assert.doesNotMatch(result.content[0].text, /agent: verifier/);
 });
 
 test("subflow extension registers a Pi tool that runs a single task and appends history", async () => {

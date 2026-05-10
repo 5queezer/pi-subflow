@@ -1,6 +1,6 @@
 # Workflow optimization
 
-`subflow_optimize` is the dry-run optimizer for authored `pi-subflow` DAG workflows. It evaluates a baseline workflow and optional **manual** candidate DAG YAMLs against repeatable eval sets, compares the results with an explicit objective, and writes a scored report under `.pi/subflow/optimizer-reports/`. It never rewrites workflow files and does not generate candidates in the MVP.
+`subflow_optimize` is the dry-run optimizer for authored `pi-subflow` DAG workflows. It evaluates a baseline workflow and optional **manual** candidate DAG YAMLs against repeatable eval sets, compares the results with an explicit objective, and writes a scored report under `.pi/subflow/optimizer-reports/`. It never rewrites workflow files; candidate generation is handled separately by `subflow_propose_candidates`.
 
 ## MVP interface
 
@@ -24,7 +24,7 @@ Use `workflowPath` or `dagYaml`, but not both. Use `evalSet.path` or `evalSet.in
 
 ## Candidate proposal
 
-`subflow_propose_candidates` generates validated static DAG candidate YAML proposals. It does not run candidates, score them, write reports, or mutate workflow files.
+`subflow_propose_candidates` generates validated static DAG candidate YAML proposals. In v1, `safe` and `exploratory` use the same fan-in-only transform; `strategy` is reserved for future proposal transforms. It does not run candidates, score them, write reports, or mutate workflow files.
 
 Review the valid outputs, then pass selected YAML strings to `subflow_optimize` as `candidateDagYamls`. Promote changes manually only after scorer-backed optimizer reports justify the change.
 

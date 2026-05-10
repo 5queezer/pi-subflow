@@ -30,6 +30,8 @@ test("proposeCandidates returns a valid verifier fan-in candidate for a multi-ro
 	assert.equal(proposal.valid, true);
 	assert.match(proposal.title, /verifier fan-in/i);
 	assert.match(proposal.dagYaml, /synthesis:/);
+	assert.match(proposal.dagYaml, /agent: researcher/);
+	assert.doesNotMatch(proposal.dagYaml, /agent: verifier/);
 	assert.match(proposal.dagYaml, /dependsOn:\n\s+- research\n\s+- repo/);
 	assert.match(proposal.dagYaml, /role: verifier/);
 });
@@ -53,9 +55,29 @@ test("proposeCandidates rejects malformed baseline DAG YAML", async () => {
 	);
 });
 
+test("proposeCandidates still generates a candidate when a verifier root has no dependencies", async () => {
+	const result = await proposeCandidates({
+		dagYaml: `research:\n  agent: researcher\n  task: Research the topic.\n\nrepo:\n  agent: researcher\n  task: Inspect repository evidence.\n\nreview:\n  agent: verifier\n  role: verifier\n  task: Review the findings.\n`,
+		count: 1,
+	});
+
+	assert.equal(result.proposals.length, 1);
+	assert.equal(result.proposals[0]?.valid, true);
+});
+
 async function tmpProject(): Promise<string> {
 	return mkdtemp(join(tmpdir(), "pi-subflow-proposer-"));
 }
+
+test("proposeCandidates wraps workflowPath read failures with context", async () => {
+	const cwd = await tmpProject();
+	const workflowPath = join(cwd, "missing-workflow.yaml");
+
+	await assert.rejects(
+		proposeCandidates({ workflowPath }),
+		new RegExp(`could not read workflowPath .*missing-workflow\\.yaml: .*ENOENT`),
+	);
+});
 
 test("proposeCandidates defaults requestedCount to 3", async () => {
 	const result = await proposeCandidates({
