@@ -62,6 +62,29 @@ test("subflow extension registers a Pi tool that runs a single task and appends 
 	assert.match(history, /"mode":"single"/);
 });
 
+test("subflow extension includes extension-level pocketflow_node trace phases", async () => {
+	const cwd = await mkdtemp(join(tmpdir(), "pi-subflow-ext-"));
+	const runner = new RecordingRunner();
+	const pi = fakePi();
+	registerPiSubflowExtension(pi, { runnerFactory: () => runner });
+
+	const result = await pi.tool.execute("call-1", { agent: "worker", task: "Inspect auth" }, undefined, undefined, fakeCtx(cwd));
+	const trace = ((result.details as { trace?: Array<{ type: string; name?: string }> })?.trace ?? []);
+	const phaseNames = trace
+		.filter((event) => event.type === "pocketflow_node")
+		.map((event) => event.name);
+
+	assert.deepEqual(phaseNames, [
+		"extension-normalize-params",
+		"extension-validate-policy",
+		"extension-discover-agents",
+		"extension-prepare-runner",
+		"extension-execute-flow",
+		"extension-persist-history",
+		"extension-format-result",
+	]);
+});
+
 test("public entrypoint exports DAG validation helpers", () => {
 	assert.equal(typeof validateDagTasks, "function");
 	assert.equal(typeof planDagStages, "function");

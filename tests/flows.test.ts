@@ -45,6 +45,21 @@ test("runChain passes previous output into later {previous} placeholders", async
 	assert.equal(result.output, "out(second sees out(first))");
 });
 
+test("runChain emits pocketflow_node phases", async () => {
+	const runner = new MockSubagentRunner({ mock: async ({ task }) => `out(${task})` });
+
+	const result = await runChain(
+		{ chain: [{ agent: "mock", task: "one" }, { agent: "mock", task: "two" }] },
+		{ runner },
+	);
+
+	assert.deepEqual(
+		result.trace.filter((event) => event.type === "pocketflow_node").map((event) => event.name),
+		["prepare-chain", "run-chain", "aggregate-chain-result"],
+	);
+	assert.equal(result.status, "completed");
+});
+
 test("runParallel fans out tasks and marks partial failure as failed", async () => {
 	const runner = new MockSubagentRunner({
 		mock: async ({ task }) => {
@@ -62,6 +77,33 @@ test("runParallel fans out tasks and marks partial failure as failed", async () 
 	assert.equal(result.results[0].status, "completed");
 	assert.equal(result.results[1].status, "failed");
 	assert.match(result.results[1].error ?? "", /boom/);
+});
+
+test("runParallel emits pocketflow_node phases and preserves bounded concurrency", async () => {
+	let running = 0;
+	let maxRunning = 0;
+	const runner = new MockSubagentRunner({
+		mock: async () => {
+			running += 1;
+			maxRunning = Math.max(maxRunning, running);
+			await new Promise((resolve) => setTimeout(resolve, 12));
+			running -= 1;
+			return "ok";
+		},
+	});
+
+	const result = await runParallel(
+		{ tasks: [task("a", "a"), task("b", "b"), task("c", "c"), task("d", "d")] },
+		{ runner, maxConcurrency: 2 },
+	);
+
+	assert.equal(maxRunning, 2);
+	assert.deepEqual(
+		result.trace.filter((event) => event.type === "pocketflow_node").map((event) => event.name),
+		["prepare-parallel", "run-parallel", "enforce-parallel-budget", "aggregate-parallel-result"],
+	);
+	assert.equal(result.status, "completed");
+	assert.equal(result.results.length, 4);
 });
 
 test("runDag executes dependencies before verifier and injects dependency outputs", async () => {
